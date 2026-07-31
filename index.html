@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0a0a0b" />
+<title>Cheetah Dashboard</title>
+<style>
+  :root {
+    --gold: #d4af37;
+    --gold-dim: rgba(212, 175, 55, 0.35);
+    --green: #34e187;
+    --purple: #a855f7;
+    --bg: #0a0a0b;
+    --card: #131317;
+    --hair: rgba(255, 255, 255, 0.07);
+    --text: #e8eaef;
+    --text-dim: #8a8d99;
+    font-size: 16px;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: var(--bg); color: var(--text);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    min-height: 100vh;
+    padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0) env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
+    display: flex;
+    justify-content: center;
+  }
+  #app-shell {
+    width: 100%;
+    max-width: 480px;
+  }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 18px 10px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand-mark {
+    width: 30px; height: 30px; border-radius: 50%;
+    border: 1.5px solid var(--gold);
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+  .brand-mark::after {
+    content: ''; position: absolute; inset: -5px; border-radius: 50%;
+    border: 1px solid var(--gold-dim);
+    animation: ping 2.4s ease-out infinite;
+  }
+  @keyframes ping {
+    0% { transform: scale(0.9); opacity: 0.9; }
+    70%, 100% { transform: scale(1.35); opacity: 0; }
+  }
+  .brand-word { font-size: 13px; font-weight: 800; letter-spacing: 5px; color: var(--gold); }
+  .icon-btn {
+    width: 36px; height: 36px; border-radius: 999px; border: 1px solid var(--hair);
+    background: rgba(255,255,255,0.03); color: var(--text-dim);
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+  }
+  .icon-btn:active { background: rgba(255,255,255,0.08); }
+  .icon-btn svg { width: 17px; height: 17px; }
+
+  .sync-status {
+    font-size: 11px; letter-spacing: 0.3px; padding: 0 18px 12px; color: var(--text-dim);
+  }
+  .sync-status.error { color: var(--purple); }
+  .sync-status.ok { color: var(--text-dim); }
+  .sync-status.loading { color: var(--gold); }
+
+  #empty-state {
+    padding: 60px 24px; text-align: center; color: var(--text-dim); font-size: 13px; line-height: 1.6;
+  }
+  #empty-state button {
+    margin-top: 16px; background: var(--gold); color: #1a1400; border: none;
+    padding: 10px 20px; border-radius: 10px; font-weight: 700; font-size: 13px; cursor: pointer;
+  }
+
+  #dash { display: none; flex-direction: column; gap: 14px; padding: 4px 16px 32px; }
+
+  .hero-card {
+    background: radial-gradient(circle at 30% 20%, rgba(212,175,55,0.10), var(--card) 65%);
+    border: 1px solid var(--hair); border-radius: 18px; padding: 22px 20px;
+  }
+  .hero-label { font-size: 11px; letter-spacing: 2px; color: var(--text-dim); text-transform: uppercase; font-weight: 700; }
+  .hero-value { font-size: 42px; font-weight: 800; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .hero-value.pos { color: var(--green); }
+  .hero-value.neg { color: var(--purple); }
+  .hero-value.flat { color: var(--text-dim); }
+  .hero-sub { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .stat-card {
+    background: var(--card); border: 1px solid var(--hair); border-radius: 14px; padding: 14px 16px;
+  }
+  .stat-label { font-size: 10px; letter-spacing: 1.2px; color: var(--text-dim); text-transform: uppercase; font-weight: 700; }
+  .stat-value { font-size: 21px; font-weight: 800; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .stat-value.pos { color: var(--green); }
+  .stat-value.neg { color: var(--purple); }
+
+  #account-row { display: none; gap: 10px; }
+  #account-row .stat-card { flex: 1; }
+
+  .section-label {
+    font-size: 11px; letter-spacing: 1.5px; color: var(--text-dim); text-transform: uppercase;
+    font-weight: 700; margin: 6px 2px 0;
+  }
+  #trade-list { display: flex; flex-direction: column; gap: 8px; }
+  .trade-row {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--card); border: 1px solid var(--hair); border-radius: 12px; padding: 10px 14px;
+  }
+  .trade-side { font-size: 11px; font-weight: 800; letter-spacing: 0.5px; width: 34px; flex-shrink: 0; }
+  .trade-side.buy { color: var(--green); }
+  .trade-side.sell { color: #ff8a8e; }
+  .trade-mid { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .trade-setup { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .trade-date { font-size: 10.5px; color: var(--text-dim); }
+  .trade-pnl { font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  .trade-pnl.pos { color: var(--green); }
+  .trade-pnl.neg { color: var(--purple); }
+  .trade-empty { color: var(--text-dim); font-size: 12px; padding: 10px 2px; }
+
+  /* Settings sheet */
+  #settings-sheet {
+    position: fixed; inset: 0; z-index: 50; display: none;
+    align-items: flex-end; justify-content: center;
+    background: rgba(0,0,0,0.55);
+  }
+  #settings-sheet.open { display: flex; }
+  #settings-panel {
+    width: 100%; max-width: 480px; background: #131317;
+    border-top: 1px solid var(--gold-dim); border-radius: 20px 20px 0 0;
+    padding: 20px 20px calc(20px + env(safe-area-inset-bottom, 0));
+  }
+  #settings-panel h2 { font-size: 14px; letter-spacing: 1px; margin: 0 0 4px; color: var(--gold); }
+  #settings-panel p { font-size: 12px; color: var(--text-dim); line-height: 1.6; margin: 0 0 16px; }
+  #settings-panel label { font-size: 11px; color: var(--text-dim); letter-spacing: 0.5px; display: block; margin: 12px 0 5px; }
+  #settings-panel input {
+    width: 100%; background: #0a0a0b; border: 1px solid var(--hair); border-radius: 10px;
+    padding: 11px 12px; color: var(--text); font-size: 13px; outline: none;
+  }
+  #settings-panel input:focus { border-color: var(--gold-dim); }
+  .settings-actions { display: flex; gap: 10px; margin-top: 20px; }
+  .settings-actions button {
+    flex: 1; padding: 12px; border-radius: 10px; font-weight: 700; font-size: 13px; border: none; cursor: pointer;
+  }
+  #settings-cancel { background: rgba(255,255,255,0.06); color: var(--text-dim); }
+  #settings-save { background: var(--gold); color: #1a1400; }
+</style>
+</head>
+<body>
+<div id="app-shell">
+  <header>
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div class="brand-word">CHEETAH</div>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="icon-btn" id="refresh-btn" aria-label="Refresh">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v6h-6"/></svg>
+      </button>
+      <button class="icon-btn" id="gear-btn" aria-label="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 0 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 0 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 0 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 0 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg>
+      </button>
+    </div>
+  </header>
+  <div class="sync-status" id="sync-status">Loading…</div>
+
+  <div id="empty-state">
+    Connect this dashboard to your synced snapshot to see today's P&amp;L and recent trades.
+    <br><button onclick="showSettings(getConfig())">Set up connection</button>
+  </div>
+
+  <div id="dash">
+    <div class="hero-card">
+      <div class="hero-label">Today's P&amp;L</div>
+      <div class="hero-value flat" id="hero-today">—</div>
+      <div class="hero-sub" id="hero-sub"></div>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="stat-label">All-time P&amp;L</div>
+        <div class="stat-value flat" id="stat-alltime">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Win rate</div>
+        <div class="stat-value" id="stat-winrate">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Trades logged</div>
+        <div class="stat-value" id="stat-count">—</div>
+      </div>
+    </div>
+
+    <div class="stat-grid" id="account-row">
+      <div class="stat-card">
+        <div class="stat-label">Balance</div>
+        <div class="stat-value" id="stat-balance">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Equity</div>
+        <div class="stat-value" id="stat-equity">—</div>
+      </div>
+    </div>
+
+    <div class="section-label">Recent trades</div>
+    <div id="trade-list"></div>
+  </div>
+</div>
+
+  <div id="settings-sheet">
+    <div id="settings-panel">
+      <h2>CONNECT SNAPSHOT</h2>
+      <p>
+        In Google Drive, right-click <b>cheetah-stats.json</b> → Share → change access to
+        "Anyone with the link — Viewer", then copy the file ID from the share link
+        (the long string between <code>/d/</code> and <code>/view</code>).
+        The API key comes from a Google Cloud project with the Drive API enabled,
+        restricted to that API.
+      </p>
+      <label for="in-file-id">Drive file ID</label>
+      <input id="in-file-id" type="text" placeholder="1AbCdefGHIjkLmnOPqrsTUvwxyz" autocapitalize="off" autocorrect="off" spellcheck="false" />
+      <label for="in-api-key">Drive API key</label>
+      <input id="in-api-key" type="text" placeholder="AIza…" autocapitalize="off" autocorrect="off" spellcheck="false" />
+      <div class="settings-actions">
+        <button id="settings-cancel">Cancel</button>
+        <button id="settings-save">Save &amp; sync</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+const CFG_FILE_ID = 'cheetah_drive_file_id';
+const CFG_API_KEY = 'cheetah_drive_api_key';
+const LAST_GOOD_KEY = 'cheetah_last_snapshot';
+
+const $ = (sel) => document.querySelector(sel);
+
+function getConfig() {
+  return {
+    fileId: localStorage.getItem(CFG_FILE_ID) || '',
+    apiKey: localStorage.getItem(CFG_API_KEY) || '',
+  };
+}
+
+function setConfig(fileId, apiKey) {
+  localStorage.setItem(CFG_FILE_ID, fileId.trim());
+  localStorage.setItem(CFG_API_KEY, apiKey.trim());
+}
+
+function money(n, withSign) {
+  if (n == null || Number.isNaN(n)) return '—';
+  const sign = n > 0 && withSign ? '+' : '';
+  return sign + n.toLocaleString(undefined, { style: 'currency', currency: 'GBP', maximumFractionDigits: 2 });
+}
+
+function posNeg(n) {
+  if (n == null) return 'flat';
+  return n > 0 ? 'pos' : n < 0 ? 'neg' : 'flat';
+}
+
+function timeAgo(iso) {
+  if (!iso) return 'never synced';
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.round(diffMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + 'm ago';
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return hrs + 'h ago';
+  return Math.round(hrs / 24) + 'd ago';
+}
+
+function showSettings(prefill) {
+  $('#settings-sheet').classList.add('open');
+  $('#in-file-id').value = prefill?.fileId || '';
+  $('#in-api-key').value = prefill?.apiKey || '';
+}
+function hideSettings() {
+  $('#settings-sheet').classList.remove('open');
+}
+
+async function fetchSnapshot() {
+  const { fileId, apiKey } = getConfig();
+  if (!fileId || !apiKey) {
+    setStatus('setup', 'Connect your Drive snapshot to get started.');
+    showSettings();
+    return;
+  }
+  setStatus('loading', 'Syncing…');
+  try {
+    const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media&key=${encodeURIComponent(apiKey)}`;
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Drive returned ${res.status}${body ? ' — ' + body.slice(0, 140) : ''}`);
+    }
+    const data = await res.json();
+    localStorage.setItem(LAST_GOOD_KEY, JSON.stringify(data));
+    render(data);
+    setStatus('ok', 'Synced ' + timeAgo(data.updatedAt));
+  } catch (err) {
+    const cached = localStorage.getItem(LAST_GOOD_KEY);
+    if (cached) {
+      render(JSON.parse(cached));
+      setStatus('error', "Couldn't refresh — showing last snapshot. " + err.message);
+    } else {
+      setStatus('error', "Couldn't load a snapshot yet. " + err.message);
+    }
+  }
+}
+
+function setStatus(kind, text) {
+  const el = $('#sync-status');
+  el.textContent = text;
+  el.className = 'sync-status ' + kind;
+}
+
+function render(data) {
+  $('#empty-state').style.display = 'none';
+  $('#dash').style.display = 'flex';
+
+  const todayEl = $('#hero-today');
+  todayEl.textContent = money(data.todayPnl, true);
+  todayEl.className = 'hero-value ' + posNeg(data.todayPnl);
+  $('#hero-sub').textContent = `${data.todayTradeCount ?? 0} trade${data.todayTradeCount === 1 ? '' : 's'} today`;
+
+  const allEl = $('#stat-alltime');
+  allEl.textContent = money(data.allTimePnl, true);
+  allEl.className = 'stat-value ' + posNeg(data.allTimePnl);
+
+  $('#stat-winrate').textContent = data.winRate != null ? data.winRate + '%' : '—';
+  $('#stat-count').textContent = data.tradeCount ?? '—';
+
+  if (data.account) {
+    $('#account-row').style.display = 'flex';
+    $('#stat-balance').textContent = money(data.account.balance);
+    $('#stat-equity').textContent = money(data.account.equity);
+  } else {
+    $('#account-row').style.display = 'none';
+  }
+
+  const list = $('#trade-list');
+  list.innerHTML = '';
+  const trades = (data.recentTrades || []).slice().reverse().slice(0, 30);
+  if (trades.length === 0) {
+    list.innerHTML = '<div class="trade-empty">No trades in this snapshot yet.</div>';
+  }
+  for (const t of trades) {
+    const row = document.createElement('div');
+    row.className = 'trade-row';
+    const side = (t.type || '').toUpperCase();
+    row.innerHTML = `
+      <span class="trade-side ${side === 'BUY' ? 'buy' : 'sell'}">${side || '—'}</span>
+      <span class="trade-mid">
+        <span class="trade-setup">${t.setup || 'Untitled setup'}</span>
+        <span class="trade-date">${t.closeDate || ''} ${t.closeTime || ''}</span>
+      </span>
+      <span class="trade-pnl ${posNeg(t.pnl)}">${money(t.pnl, true)}</span>
+    `;
+    list.appendChild(row);
+  }
+}
+
+function init() {
+  $('#refresh-btn').addEventListener('click', () => fetchSnapshot());
+  $('#gear-btn').addEventListener('click', () => showSettings(getConfig()));
+  $('#settings-cancel').addEventListener('click', hideSettings);
+  $('#settings-save').addEventListener('click', () => {
+    const fileId = $('#in-file-id').value;
+    const apiKey = $('#in-api-key').value;
+    if (!fileId || !apiKey) return;
+    setConfig(fileId, apiKey);
+    hideSettings();
+    fetchSnapshot();
+  });
+
+  const cached = localStorage.getItem(LAST_GOOD_KEY);
+  if (cached) render(JSON.parse(cached));
+
+  fetchSnapshot();
+}
+
+document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

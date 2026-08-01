@@ -197,6 +197,7 @@
     transform: translate(-50%, -110%);
   }
   .eq-svg-wrap { position: relative; }
+  #eq-yaxis { position: absolute; inset: 0; pointer-events: none; }
 
   /* Report */
   .report-section { padding: 14px 16px; border-bottom: 1px solid var(--border); }
@@ -433,6 +434,7 @@
             <div class="eq-stat"><div class="stat-label">Current</div><div class="eq-stat-v" id="eq-current">—</div></div>
             <div class="eq-stat"><div class="stat-label">Peak</div><div class="eq-stat-v" id="eq-peak">—</div></div>
             <div class="eq-stat"><div class="stat-label">Max DD</div><div class="eq-stat-v neg" id="eq-dd">—</div></div>
+            <div class="eq-stat"><div class="stat-label">Trades</div><div class="eq-stat-v" id="eq-trades">—</div></div>
             <div class="eq-stat"><div class="stat-label">Best Day</div><div class="eq-stat-v pos" id="eq-best">—</div></div>
             <div class="eq-stat"><div class="stat-label">Worst Day</div><div class="eq-stat-v neg" id="eq-worst">—</div></div>
           </div>
@@ -440,6 +442,7 @@
             <div class="eq-scroll" id="eq-scroll">
               <svg id="equity-svg" class="chart-svg" viewBox="0 0 400 220"></svg>
             </div>
+            <div id="eq-yaxis"></div>
             <div id="eq-tooltip"></div>
           </div>
           <div class="chart-caption" id="equity-caption">Drag to pan · pinch to zoom · double-tap to reset · tap a point to inspect</div>
@@ -1064,7 +1067,7 @@ function renderEquity(scoped) {
     $('#equity-svg').innerHTML = '';
     $('#equity-caption').textContent = 'No history yet.';
     $('#eq-current').textContent = $('#eq-peak').textContent = $('#eq-dd').textContent = '—';
-    $('#eq-best').textContent = $('#eq-worst').textContent = '—';
+    $('#eq-best').textContent = $('#eq-worst').textContent = $('#eq-trades').textContent = '—';
     return;
   }
 
@@ -1073,6 +1076,7 @@ function renderEquity(scoped) {
   $('#eq-current').textContent = money(values[values.length - 1], true);
   $('#eq-peak').textContent = money(peak, true);
   $('#eq-dd').textContent = money(view.drawdown);
+  $('#eq-trades').textContent = view.tradeCount ?? curve.length;
   $('#eq-best').textContent = view.bestDay ? money(view.bestDay.pnl, true) : '—';
   $('#eq-worst').textContent = view.worstDay ? money(view.worstDay.pnl, true) : '—';
 
@@ -1159,6 +1163,24 @@ function drawEquityCumulative(curve, keepView, isDrawdown) {
   zero.setAttribute('stroke', '#2a2a2e'); zero.setAttribute('stroke-width', '1');
   svg.appendChild(zero);
 
+  // Y-axis: fixed price gridlines + labels, non-scrolling overlay.
+  const yaxis = $('#eq-yaxis');
+  yaxis.innerHTML = '';
+  const LEVELS = 4;
+  for (let i = 0; i <= LEVELS; i++) {
+    const v = max - (i / LEVELS) * (max - min);
+    const yPct = (yAt(v) / H) * 100;
+    const gl = document.createElement('div');
+    gl.className = 'tcm-gridline';
+    gl.style.top = yPct + '%';
+    yaxis.appendChild(gl);
+    const label = document.createElement('div');
+    label.className = 'tcm-gridline-label';
+    label.style.top = yPct + '%';
+    label.textContent = money(v, true);
+    yaxis.appendChild(label);
+  }
+
   const first = slice[0], last = slice[slice.length - 1];
   const zoomedTag = eqVisibleCount < curve.length ? ' · pinch out or double-tap to reset' : '';
   $('#equity-caption').textContent = `${first.date}${first.time ? ' ' + first.time : ''} → ${last.date}${last.time ? ' ' + last.time : ''} · ${money(values[values.length - 1], true)}${zoomedTag}`;
@@ -1169,6 +1191,7 @@ function drawEquityCumulative(curve, keepView, isDrawdown) {
 function drawEquityDaily(daily) {
   const svg = $('#equity-svg');
   svg.innerHTML = '';
+  $('#eq-yaxis').innerHTML = '';
   if (!daily.length) return;
   const W = 400, H = 220, midY = H / 2;
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);

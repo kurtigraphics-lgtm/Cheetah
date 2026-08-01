@@ -516,6 +516,11 @@
           <h3>Setups</h3>
           <div id="rp-setups"></div>
         </div>
+
+        <div class="report-section">
+          <h3>Day of Week</h3>
+          <div id="rp-dow"></div>
+        </div>
       </div>
 
       <div class="tab-pane" id="pane-calendar">
@@ -936,7 +941,19 @@ function drawCandles(bars, trade) {
 }
 
 // ── Render: Chart tab (per-trade bar chart + MAE/MFE wick) ─────────
-function renderChart(scopedTrades) {
+let chartGroupMode = 'trade'; // 'trade' | 'day'
+
+function renderChart(scopedTrades, scopedDaily) {
+  eqChartTradesRef = scopedTrades;
+  eqChartDailyRef = scopedDaily || [];
+  if (chartGroupMode === 'day') renderChartByDay(eqChartDailyRef);
+  else renderChartByTrade(eqChartTradesRef);
+}
+let eqChartTradesRef = [], eqChartDailyRef = [];
+
+function renderChartByTrade(scopedTrades) {
+  $('#chart-legend').style.display = 'flex';
+  $('#chart-caption').textContent = 'P&L per trade with excursion wick, most recent on the right';
   const svg = $('#chart-svg');
   const trades = scopedTrades.slice(-80);
   svg.innerHTML = '';
@@ -988,6 +1005,33 @@ function renderChart(scopedTrades) {
     rect.setAttribute('fill', pnl >= 0 ? '#34e187' : '#a855f7');
     svg.appendChild(rect);
     x += barW + 2;
+  }
+}
+
+function renderChartByDay(daily) {
+  $('#chart-legend').style.display = 'none';
+  $('#chart-caption').textContent = 'Net P&L per day, most recent on the right';
+  const svg = $('#chart-svg');
+  svg.innerHTML = '';
+  if (!daily.length) return;
+  const W = 400, H = 220, midY = H / 2;
+  const maxAbs = Math.max(1, ...daily.map((d) => Math.abs(d.pnl)));
+  const barW = Math.max(2, (W / daily.length) - 3);
+  const ns = 'http://www.w3.org/2000/svg';
+  const zero = document.createElementNS(ns, 'line');
+  zero.setAttribute('x1', 0); zero.setAttribute('x2', W); zero.setAttribute('y1', midY); zero.setAttribute('y2', midY);
+  zero.setAttribute('stroke', '#2a2a2e'); zero.setAttribute('stroke-width', '1');
+  svg.appendChild(zero);
+  let x = 4;
+  for (const d of daily) {
+    const h = Math.abs(d.pnl) / maxAbs * (H / 2 - 10);
+    const rect = document.createElementNS(ns, 'rect');
+    rect.setAttribute('x', x); rect.setAttribute('width', barW);
+    rect.setAttribute('y', d.pnl >= 0 ? midY - h : midY);
+    rect.setAttribute('height', Math.max(1, h));
+    rect.setAttribute('fill', d.pnl >= 0 ? '#34e187' : '#a855f7');
+    svg.appendChild(rect);
+    x += barW + 3;
   }
 }
 
@@ -1317,6 +1361,38 @@ function renderReport(data) {
   $('#rp-short-n').textContent = s.trades ?? '—';
 
   renderSetupsBreakdown(data.trades || []);
+  renderDayOfWeekBreakdown(data.trades || []);
+}
+
+function renderDayOfWeekBreakdown(trades) {
+  const el = $('#rp-dow');
+  el.innerHTML = '';
+  const DOW_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const byDow = DOW_NAMES.map((name) => ({ name, net: 0, trades: 0, wins: 0 }));
+  for (const t of trades) {
+    if (!t.closeDate) continue;
+    const jsDow = new Date(t.closeDate + 'T00:00:00').getDay(); // 0=Sun
+    const idx = (jsDow + 6) % 7; // Monday = 0
+    byDow[idx].net += t.pnl || 0;
+    byDow[idx].trades += 1;
+    if ((t.pnl || 0) > 0) byDow[idx].wins += 1;
+  }
+  const active = byDow.filter((d) => d.trades > 0);
+  if (!active.length) { el.innerHTML = '<div class="jr-empty">No trades in range.</div>'; return; }
+  const maxAbs = Math.max(1, ...byDow.map((d) => Math.abs(d.net)));
+  for (const d of byDow) {
+    if (!d.trades) continue;
+    const winRate = Math.round((d.wins / d.trades) * 100);
+    const row = document.createElement('div');
+    row.className = 'setup-row';
+    row.innerHTML = `
+      <span class="setup-row-n" style="width:34px">${d.name}</span>
+      <span class="setup-row-n">${d.trades} trd · ${winRate}%</span>
+      <span class="setup-row-bar"><span class="setup-row-bar-fill" style="width:${(Math.abs(d.net) / maxAbs) * 100}%; background:${d.net >= 0 ? '#34e187' : '#a855f7'}"></span></span>
+      <span class="setup-row-net ${posNeg(d.net)}">${money(d.net, true)}</span>
+    `;
+    el.appendChild(row);
+  }
 }
 
 function renderSetupsBreakdown(trades) {
@@ -1695,7 +1771,7 @@ function renderAll() {
   updateRangeLabel(scoped);
   renderSummary(scoped, currentData);
   renderTrades(scoped.trades);
-  renderChart(scoped.trades);
+  renderChart(scoped.trades, scoped.daily);
   renderEquity(scoped);
   renderReport(scoped);
   renderCalendar(currentData); // calendar has its own month nav, not range-scoped
@@ -1755,6 +1831,15 @@ function init() {
       btn.classList.add('active');
       eqScope = btn.dataset.scope;
       if (lastScoped) renderEquity(lastScoped);
+    });
+  });
+
+  document.querySelectorAll('.chart-group-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.chart-group-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      chartGroupMode = btn.dataset.group;
+      renderChart(eqChartTradesRef, eqChartDailyRef);
     });
   });
 

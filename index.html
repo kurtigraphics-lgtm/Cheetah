@@ -1263,6 +1263,23 @@ function drawEquityCumulative(curve, keepView, isDrawdown) {
     yaxis.appendChild(label);
   }
 
+  // X-axis: date labels at evenly-spaced points across whatever's
+  // currently visible — these live inside the SVG so they pan/zoom with
+  // the data, same as the Y-axis labels above but on the time dimension.
+  const X_LABEL_COUNT = Math.min(5, slice.length);
+  for (let i = 0; i < X_LABEL_COUNT; i++) {
+    const idx = X_LABEL_COUNT > 1 ? Math.round((i / (X_LABEL_COUNT - 1)) * (slice.length - 1)) : 0;
+    const p = slice[idx];
+    const text = document.createElementNS(ns, 'text');
+    text.setAttribute('x', xAt(idx));
+    text.setAttribute('y', H - 4);
+    text.setAttribute('font-size', '9');
+    text.setAttribute('fill', '#8a8a92');
+    text.setAttribute('text-anchor', idx === 0 ? 'start' : idx === slice.length - 1 ? 'end' : 'middle');
+    text.textContent = p.date ? p.date.slice(5) : ''; // MM-DD, year rarely needed at this zoom
+    svg.appendChild(text);
+  }
+
   const first = slice[0], last = slice[slice.length - 1];
   const zoomedTag = eqVisibleCount < curve.length ? ' · pinch out or double-tap to reset' : '';
   $('#equity-caption').textContent = `${first.date}${first.time ? ' ' + first.time : ''} → ${last.date}${last.time ? ' ' + last.time : ''} · ${money(values[values.length - 1], true)}${zoomedTag}`;
@@ -1296,6 +1313,20 @@ function drawEquityDaily(daily) {
     svg.appendChild(rect);
     x += barW + 2;
   }
+
+  const X_LABEL_COUNT = Math.min(5, daily.length);
+  for (let i = 0; i < X_LABEL_COUNT; i++) {
+    const idx = X_LABEL_COUNT > 1 ? Math.round((i / (X_LABEL_COUNT - 1)) * (daily.length - 1)) : 0;
+    const text = document.createElementNS(ns, 'text');
+    text.setAttribute('x', 4 + idx * (barW + 2) + barW / 2);
+    text.setAttribute('y', H - 4);
+    text.setAttribute('font-size', '9');
+    text.setAttribute('fill', '#8a8a92');
+    text.setAttribute('text-anchor', idx === 0 ? 'start' : idx === daily.length - 1 ? 'end' : 'middle');
+    text.textContent = daily[idx].date.slice(5);
+    svg.appendChild(text);
+  }
+
   $('#equity-caption').textContent = `${daily[0].date} → ${daily[daily.length - 1].date} · daily P&L`;
 }
 
@@ -1882,11 +1913,12 @@ function initYearSlider() {
   }
 
   // Pointer handling lives on the whole track (not the tiny 16px thumb
-  // circles) so a touch anywhere near a handle reliably starts the drag,
-  // with capture on the track itself so fast finger movement off the
-  // handle doesn't drop the drag.
-  trackWrapEl.addEventListener('pointerdown', (evt) => {
-    trackWrapEl.setPointerCapture(evt.pointerId);
+  // circles) so a touch anywhere near a handle reliably starts the drag.
+  // Bound via BOTH Pointer Events and native Touch Events — some mobile
+  // browsers (in-app webviews, older Android Chrome/Samsung Internet)
+  // have unreliable Pointer Event support, so Touch Events are a
+  // necessary fallback, not just redundancy.
+  function startDragAt(clientX) {
     // Seed both bounds from whatever's currently active BEFORE dragging —
     // otherwise dragging just one handle leaves the other at null, and
     // computeScoped's `customFrom && customTo` check fails, silently
@@ -1897,18 +1929,41 @@ function initYearSlider() {
       customTo = customTo || (scoped && scoped.to) || yrEnd;
     }
     const rect = trackWrapEl.getBoundingClientRect();
-    const x = evt.clientX - rect.left;
+    const x = clientX - rect.left;
     const fromX = (parseFloat(thumbFrom.style.left) / 100) * rect.width;
     const toX = (parseFloat(thumbTo.style.left) / 100) * rect.width;
     const which = Math.abs(x - fromX) <= Math.abs(x - toX) ? 'from' : 'to';
     yrDrag = which;
     (which === 'from' ? thumbFrom : thumbTo).classList.add('yr-thumb-active');
     tooltip.style.display = 'block';
+  }
+
+  trackWrapEl.addEventListener('pointerdown', (evt) => {
+    try { trackWrapEl.setPointerCapture(evt.pointerId); } catch (e) {}
+    startDragAt(evt.clientX);
     moveDrag(evt);
   });
   trackWrapEl.addEventListener('pointermove', moveDrag);
   trackWrapEl.addEventListener('pointerup', endDrag);
   trackWrapEl.addEventListener('pointercancel', endDrag);
+
+  // Touch Events as a fallback ONLY where Pointer Events aren't supported
+  // at all — some mobile browsers (in-app webviews, older Android
+  // Chrome/Samsung Internet) lack reliable Pointer Event support.
+  // Feature-detecting rather than binding both avoids double-firing on
+  // devices that support both systems for the same physical touch.
+  if (typeof window.PointerEvent === 'undefined') {
+    trackWrapEl.addEventListener('touchstart', (evt) => {
+      if (!evt.touches.length) return;
+      startDragAt(evt.touches[0].clientX);
+      moveDrag(evt);
+    }, { passive: true });
+    trackWrapEl.addEventListener('touchmove', moveDrag, { passive: true });
+    trackWrapEl.addEventListener('touchend', endDrag);
+    trackWrapEl.addEventListener('touchcancel', endDrag);
+  }
+
+
 
   syncPositions();
 }

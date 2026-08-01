@@ -121,11 +121,12 @@
   .tab-pane.active { display: block; }
 
   /* Trades (journal) */
-  .jr-table-head { display: grid; grid-template-columns: 62px 1fr; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); padding: 12px 16px 6px; }
+  .jr-table-head { display: grid; grid-template-columns: 74px 1fr; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); padding: 12px 16px 6px; }
   .jr-day-header { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 16px 6px; margin-top: 4px; font-size: 12px; font-weight: 700; color: var(--text); border-bottom: 1px solid var(--border); }
   .jr-day-count { font-size: 10.5px; font-weight: 600; color: var(--text-dim); }
-  .jr-row { display: grid; grid-template-columns: 62px 1fr; padding: 7px 16px; font-size: 12px; border-bottom: 1px solid #1c1c1f; align-items: center; }
-  .jr-time { color: var(--text-dim); font-variant-numeric: tabular-nums; font-size: 11px; }
+  .jr-row { display: grid; grid-template-columns: 74px 1fr; padding: 7px 16px; font-size: 12px; border-bottom: 1px solid #1c1c1f; align-items: center; }
+  .jr-time { color: var(--text-dim); font-variant-numeric: tabular-nums; font-size: 10.5px; line-height: 1.5; }
+  .jr-time .close { color: #b8b8c0; }
   .jr-event { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
   .jr-side { font-weight: 800; font-size: 10.5px; letter-spacing: 0.4px; flex-shrink: 0; width: 30px; }
   .jr-side.buy { color: var(--green-bright); }
@@ -178,6 +179,11 @@
     padding: 8px; border-radius: 4px; font-size: 11.5px; font-weight: 700; cursor: pointer; font-family: inherit;
   }
   .eq-scope-btn.active { color: var(--gold); border-color: var(--gold); background: #2a2308; }
+  .chart-group-btn {
+    flex: 1; background: var(--panel-alt); border: 1px solid var(--border); color: var(--text-dim);
+    padding: 8px; border-radius: 4px; font-size: 11.5px; font-weight: 700; cursor: pointer; font-family: inherit;
+  }
+  .chart-group-btn.active { color: var(--green-bright); border-color: var(--green); background: #16281f; }
   .eq-stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
   .eq-stat { background: var(--panel-alt); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
   .eq-stat-v { font-size: 13px; font-weight: 700; margin-top: 3px; font-variant-numeric: tabular-nums; }
@@ -202,6 +208,12 @@
   .report-row .v.neg { color: var(--purple-bright); }
   .split-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .split-col h4 { font-size: 10.5px; margin: 0 0 6px; color: var(--text-dim); text-transform: uppercase; }
+  .setup-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid #1c1c1f; }
+  .setup-row:last-child { border-bottom: none; }
+  .setup-row-n { font-size: 10.5px; color: var(--text-dim); width: 60px; flex-shrink: 0; }
+  .setup-row-bar { flex: 1; height: 5px; background: var(--panel-alt); border-radius: 3px; overflow: hidden; }
+  .setup-row-bar-fill { height: 100%; border-radius: 3px; }
+  .setup-row-net { font-size: 12px; font-weight: 700; width: 74px; text-align: right; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 
   #rp-score-badge {
     display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 3px;
@@ -237,6 +249,13 @@
   .cal-day-pnl { font-weight: 800; font-variant-numeric: tabular-nums; font-size: 8.5px; }
   .cal-day-pnl.pos { color: var(--green-bright); }
   .cal-day-pnl.neg { color: var(--purple-bright); }
+  #cal-week-totals { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
+  .cal-week-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 11.5px; }
+  .cal-week-label { color: #b8b8c0; flex-shrink: 0; }
+  .cal-week-trades { color: var(--text-dim); font-size: 10.5px; }
+  .cal-week-pnl { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .cal-week-pnl.pos { color: var(--green-bright); }
+  .cal-week-pnl.neg { color: var(--purple-bright); }
 
   /* ── Bottom tab bar ────────────────────────────────────────────── */
   #tab-bar {
@@ -382,14 +401,18 @@
 
       <div class="tab-pane" id="pane-chart">
         <div class="chart-wrap">
+          <div class="eq-toggle">
+            <button class="chart-group-btn active" data-group="trade">Per Trade</button>
+            <button class="chart-group-btn" data-group="day">Per Day</button>
+          </div>
           <svg id="chart-svg" class="chart-svg" viewBox="0 0 400 220"></svg>
-          <div class="chart-legend">
+          <div class="chart-legend" id="chart-legend">
             <span><i class="lg-dot pos"></i>Win</span>
             <span><i class="lg-dot neg"></i>Loss</span>
             <span><i class="lg-dot mfe"></i>MFE</span>
             <span><i class="lg-dot mae"></i>MAE</span>
           </div>
-          <div class="chart-caption">P&amp;L per trade with excursion wick, most recent on the right</div>
+          <div class="chart-caption" id="chart-caption">P&amp;L per trade with excursion wick, most recent on the right</div>
         </div>
       </div>
 
@@ -488,6 +511,11 @@
             </div>
           </div>
         </div>
+
+        <div class="report-section">
+          <h3>Setups</h3>
+          <div id="rp-setups"></div>
+        </div>
       </div>
 
       <div class="tab-pane" id="pane-calendar">
@@ -498,6 +526,7 @@
             <button id="cal-next">›</button>
           </div>
           <div class="cal-grid" id="cal-grid"></div>
+          <div id="cal-week-totals"></div>
         </div>
       </div>
     </div>
@@ -729,7 +758,7 @@ function renderTrades(scopedTrades) {
     const row = document.createElement('div');
     row.className = 'jr-row tappable';
     row.innerHTML = `
-      <span class="jr-time">${t.closeTime || ''}</span>
+      <span class="jr-time">${t.openTime ? t.openTime + '<br><span class="close">' + t.closeTime + '</span>' : (t.closeTime || '')}</span>
       <span class="jr-event">
         <span class="jr-side ${side === 'BUY' ? 'buy' : 'sell'}">${side || '—'}</span>
         ${t.lots != null ? `<span class="jr-lots">${t.lots}L</span>` : ''}
@@ -1126,6 +1155,7 @@ function attachEquityGestures() {
   }
 
   wrap.addEventListener('touchstart', (evt) => {
+    if (eqMode !== 'cumulative' && eqMode !== 'drawdown') return;
     if (evt.touches.length === 1) {
       const now = Date.now();
       if (now - lastTapAt < 320) {
@@ -1285,6 +1315,39 @@ function renderReport(data) {
   $('#rp-short-net').textContent = money(s.netProfit, true); $('#rp-short-net').className = 'v ' + posNeg(s.netProfit);
   $('#rp-short-wr').textContent = s.winRate != null ? s.winRate + '%' : '—';
   $('#rp-short-n').textContent = s.trades ?? '—';
+
+  renderSetupsBreakdown(data.trades || []);
+}
+
+function renderSetupsBreakdown(trades) {
+  const el = $('#rp-setups');
+  el.innerHTML = '';
+  const bySetup = new Map();
+  for (const t of trades) {
+    const key = t.setup || 'None';
+    const cur = bySetup.get(key) || { setup: key, net: 0, trades: 0, wins: 0 };
+    cur.net += t.pnl || 0;
+    cur.trades += 1;
+    if ((t.pnl || 0) > 0) cur.wins += 1;
+    bySetup.set(key, cur);
+  }
+  const rows = Array.from(bySetup.values()).sort((a, b) => Math.abs(b.net) - Math.abs(a.net));
+  if (!rows.length) { el.innerHTML = '<div class="jr-empty">No trades in range.</div>'; return; }
+  const maxAbs = Math.max(1, ...rows.map((r) => Math.abs(r.net)));
+  for (const r of rows) {
+    const colorKey = r.setup === 'None' ? null : setupColorKey(r.setup);
+    const badge = colorKey ? `<span class="jr-setup-badge setup-${colorKey}">${r.setup}</span>` : '<span class="setup-row-n">None</span>';
+    const winRate = r.trades ? Math.round((r.wins / r.trades) * 100) : 0;
+    const row = document.createElement('div');
+    row.className = 'setup-row';
+    row.innerHTML = `
+      ${badge}
+      <span class="setup-row-n">${r.trades} trd · ${winRate}%</span>
+      <span class="setup-row-bar"><span class="setup-row-bar-fill" style="width:${(Math.abs(r.net) / maxAbs) * 100}%; background:${r.net >= 0 ? '#34e187' : '#a855f7'}"></span></span>
+      <span class="setup-row-net ${posNeg(r.net)}">${money(r.net, true)}</span>
+    `;
+    el.appendChild(row);
+  }
 }
 
 // ── Render: Calendar tab ─────────────────────────────────────────────
@@ -1314,6 +1377,8 @@ function renderCalendar(data) {
   for (let i = 0; i < startOffset; i++) {
     const el = document.createElement('div'); el.className = 'cal-cell empty'; grid.appendChild(el);
   }
+  const weekTotals = []; // { label, pnl, trades }
+  let weekIdx = 0, weekStart = null;
   for (let day = 1; day <= daysInMonth; day++) {
     const dateStr = `${year}-${String(month + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
     const entry = byDate[dateStr];
@@ -1323,7 +1388,28 @@ function renderCalendar(data) {
     const pnlEl = entry ? `<span class="cal-day-pnl ${entry.pnl >= 0 ? 'pos' : 'neg'}">${money(entry.pnl, true)}</span>` : '';
     cell.innerHTML = numEl + pnlEl;
     grid.appendChild(cell);
+
+    const dowIdx = (startOffset + day - 1) % 7;
+    if (dowIdx === 0) { weekStart = day; weekTotals[weekIdx] = { label: '', pnl: 0, trades: 0 }; }
+    if (!weekTotals[weekIdx]) weekTotals[weekIdx] = { label: '', pnl: 0, trades: 0 };
+    if (entry) { weekTotals[weekIdx].pnl += entry.pnl; weekTotals[weekIdx].trades += entry.trades; }
+    weekTotals[weekIdx].label = `${weekStart || day}–${day}`;
+    if (dowIdx === 6 || day === daysInMonth) weekIdx++;
   }
+
+  const weekList = $('#cal-week-totals');
+  weekList.innerHTML = '';
+  weekTotals.forEach((w, i) => {
+    if (!w) return;
+    const row = document.createElement('div');
+    row.className = 'cal-week-row';
+    row.innerHTML = `
+      <span class="cal-week-label">Wk ${i + 1} (${w.label})</span>
+      <span class="cal-week-trades">${w.trades} trades</span>
+      <span class="cal-week-pnl ${posNeg(w.pnl)}">${money(w.pnl, true)}</span>
+    `;
+    weekList.appendChild(row);
+  });
 }
 
 // ── Range scoping — mirrors desktop's quick-range buttons ──────────

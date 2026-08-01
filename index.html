@@ -75,7 +75,15 @@
   }
   .range-chip.active { background: #16281f; color: var(--green-bright); border-color: var(--green); }
   #yr-slider-wrap { margin-top: 10px; padding: 0 2px; }
-  #yr-slider-label { font-size: 10.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; margin-bottom: 10px; }
+  #yr-label-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  #yr-slider-label { font-size: 10.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+  #yr-day-nav { display: flex; gap: 6px; }
+  #yr-day-nav button {
+    background: var(--panel-alt); border: 1px solid var(--border); color: var(--text-dim);
+    border-radius: 4px; width: 24px; height: 24px; font-size: 10px; cursor: pointer;
+    font-family: inherit; line-height: 1;
+  }
+  #yr-day-nav button:active { color: var(--gold); border-color: var(--gold); }
   #yr-track-wrap { position: relative; height: 28px; margin: 0 6px; touch-action: none; }
   #yr-track { position: absolute; top: 50%; left: 0; right: 0; height: 3px; transform: translateY(-50%); background: rgba(212,175,55,0.65); border-radius: 2px; }
   #yr-fill { position: absolute; top: 50%; height: 3px; transform: translateY(-50%); background: #f0c34e; box-shadow: 0 0 6px rgba(240,195,78,0.5); border-radius: 2px; pointer-events: none; }
@@ -371,7 +379,13 @@
         <button class="range-chip" data-range="all">All</button>
       </div>
       <div id="yr-slider-wrap">
-        <div id="yr-slider-label"></div>
+        <div id="yr-label-row">
+          <div id="yr-slider-label"></div>
+          <div id="yr-day-nav">
+            <button id="yr-day-back" title="Back one day">&#9668;</button>
+            <button id="yr-day-fwd" title="Forward one day">&#9658;</button>
+          </div>
+        </div>
         <div id="yr-track-wrap">
           <div id="yr-track"></div>
           <div id="yr-fill"></div>
@@ -2437,6 +2451,19 @@ function init() {
 
   $('#tcm-close').addEventListener('click', closeTradeChart);
   initYearSlider();
+
+  function shiftRangeDay(deltaDays) {
+    const scoped = lastScoped;
+    const curFrom = customFrom || (scoped && scoped.from) || yrStart;
+    const curTo = customTo || (scoped && scoped.to) || yrEnd;
+    customFrom = new Date(curFrom.getTime() + deltaDays * 86400000);
+    customTo = new Date(curTo.getTime() + deltaDays * 86400000);
+    selectedRange = 'custom';
+    document.querySelectorAll('.range-chip').forEach((b) => b.classList.remove('active'));
+    renderAll();
+  }
+  $('#yr-day-back').addEventListener('click', () => shiftRangeDay(-1));
+  $('#yr-day-fwd').addEventListener('click', () => shiftRangeDay(1));
 
   document.querySelectorAll('.eq-toggle-btn[data-mode]').forEach((btn) => {
     btn.addEventListener('click', () => {

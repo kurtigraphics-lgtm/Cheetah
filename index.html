@@ -175,6 +175,25 @@
   .split-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .split-col h4 { font-size: 10.5px; margin: 0 0 6px; color: var(--text-dim); text-transform: uppercase; }
 
+  #rp-score-badge {
+    display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 3px;
+    font-size: 10px; font-weight: 800; letter-spacing: 0.3px; text-transform: none;
+  }
+  #rp-score-badge.grade-a { background: rgba(52,225,135,0.16); color: var(--green-bright); }
+  #rp-score-badge.grade-b { background: rgba(212,175,55,0.16); color: var(--gold); }
+  #rp-score-badge.grade-c { background: rgba(245,166,35,0.16); color: #f5a623; }
+  #rp-score-badge.grade-d { background: rgba(168,85,247,0.16); color: var(--purple-bright); }
+  .scorecard-row { margin-bottom: 12px; }
+  .scorecard-label { display: flex; justify-content: space-between; font-size: 11.5px; color: #b8b8c0; margin-bottom: 5px; }
+  .scorecard-label span:last-child { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .scorecard-bar { height: 6px; border-radius: 3px; background: var(--panel-alt); overflow: hidden; }
+  .scorecard-fill { height: 100%; border-radius: 3px; transition: width 0.3s ease; }
+  .scorecard-fill.grade-a { background: var(--green-bright); }
+  .scorecard-fill.grade-b { background: var(--gold); }
+  .scorecard-fill.grade-c { background: #f5a623; }
+  .scorecard-fill.grade-d { background: var(--purple-bright); }
+  .scorecard-note { font-size: 10px; color: var(--text-dim); margin-top: 4px; }
+
   /* Calendar */
   .cal-wrap { padding: 14px 16px; }
   .cal-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
@@ -360,17 +379,54 @@
 
       <div class="tab-pane" id="pane-report">
         <div class="report-section">
-          <h3>Overview</h3>
+          <h3>Edge Metrics</h3>
           <div class="report-row"><span class="k">Net Profit</span><span class="v" id="rp-net">—</span></div>
           <div class="report-row"><span class="k">Profit Factor</span><span class="v" id="rp-pf">—</span></div>
+          <div class="report-row"><span class="k">Expectancy/Trade</span><span class="v" id="rp-exp">—</span></div>
+          <div class="report-row"><span class="k">Avg Win/Loss Ratio</span><span class="v" id="rp-wlr">—</span></div>
           <div class="report-row"><span class="k">Win Rate</span><span class="v" id="rp-wr">—</span></div>
           <div class="report-row"><span class="k">Avg Win</span><span class="v" id="rp-avgwin">—</span></div>
           <div class="report-row"><span class="k">Avg Loss</span><span class="v" id="rp-avgloss">—</span></div>
+        </div>
+
+        <div class="report-section">
+          <h3>Volume</h3>
           <div class="report-row"><span class="k">Trades</span><span class="v" id="rp-trades">—</span></div>
+          <div class="report-row"><span class="k">Avg Trades/Day</span><span class="v" id="rp-avgtrades">—</span></div>
+        </div>
+
+        <div class="report-section">
+          <h3>Daily Performance</h3>
+          <div class="report-row"><span class="k">Day Win Rate</span><span class="v" id="rp-daywr">—</span></div>
           <div class="report-row"><span class="k">Best Day</span><span class="v" id="rp-best">—</span></div>
           <div class="report-row"><span class="k">Worst Day</span><span class="v" id="rp-worst">—</span></div>
           <div class="report-row"><span class="k">Max Drawdown</span><span class="v" id="rp-dd">—</span></div>
         </div>
+
+        <div class="report-section">
+          <h3>P&amp;L Detail</h3>
+          <div class="report-row"><span class="k">Gross Profit</span><span class="v" id="rp-gp">—</span></div>
+          <div class="report-row"><span class="k">Gross Loss</span><span class="v" id="rp-gl">—</span></div>
+          <div class="report-row"><span class="k">Max Win</span><span class="v" id="rp-maxwin">—</span></div>
+        </div>
+
+        <div class="report-section">
+          <h3>Edge Scorecard <span id="rp-score-badge"></span></h3>
+          <div class="scorecard-row">
+            <div class="scorecard-label"><span>Win:Loss Ratio</span><span id="sc-wlr-val"></span></div>
+            <div class="scorecard-bar"><div class="scorecard-fill" id="sc-wlr-fill"></div></div>
+          </div>
+          <div class="scorecard-row">
+            <div class="scorecard-label"><span>Trade Win Rate</span><span id="sc-twr-val"></span></div>
+            <div class="scorecard-bar"><div class="scorecard-fill" id="sc-twr-fill"></div></div>
+          </div>
+          <div class="scorecard-row">
+            <div class="scorecard-label"><span>Day Win Rate</span><span id="sc-dwr-val"></span></div>
+            <div class="scorecard-bar"><div class="scorecard-fill" id="sc-dwr-fill"></div></div>
+          </div>
+          <div class="scorecard-note">Targets: 2R win/loss · 42% trade WR · 70% day WR</div>
+        </div>
+
         <div class="report-section">
           <h3>Long vs Short</h3>
           <div class="split-cols">
@@ -944,17 +1000,62 @@ function attachEquityInspect(svg, points) {
 }
 
 // ── Render: Report tab ──────────────────────────────────────────────
+// Goal targets — mirrors the desktop app's "2R / 42% WR / 70% day WR" plan.
+const GOAL_TARGETS = { winLossRatio: 2, tradeWinRate: 42, dayWinRate: 70 };
+
+function gradeFor(pct) {
+  if (pct >= 100) return 'a';
+  if (pct >= 75) return 'b';
+  if (pct >= 50) return 'c';
+  return 'd';
+}
+
 function renderReport(data) {
   const o = data.overall || {};
   $('#rp-net').textContent = money(o.netProfit, true); $('#rp-net').className = 'v ' + posNeg(o.netProfit);
   $('#rp-pf').textContent = o.profitFactor != null ? o.profitFactor + 'x' : '—';
+  $('#rp-pf').className = 'v ' + (o.profitFactor == null ? '' : o.profitFactor >= 1 ? 'pos' : 'neg');
+  $('#rp-exp').textContent = money(o.expectancy, true); $('#rp-exp').className = 'v ' + posNeg(o.expectancy);
+  $('#rp-wlr').textContent = o.winLossRatio != null ? o.winLossRatio + 'R' : '—';
+  $('#rp-wlr').className = 'v ' + (o.winLossRatio == null ? '' : o.winLossRatio >= GOAL_TARGETS.winLossRatio ? 'pos' : 'neg');
   $('#rp-wr').textContent = o.winRate != null ? o.winRate + '%' : '—';
   $('#rp-avgwin').textContent = money(o.avgWin, true); $('#rp-avgwin').className = 'v pos';
   $('#rp-avgloss').textContent = money(o.avgLoss, true); $('#rp-avgloss').className = 'v neg';
+
   $('#rp-trades').textContent = o.trades ?? '—';
+  $('#rp-avgtrades').textContent = data.avgTradesPerDay != null ? data.avgTradesPerDay : '—';
+
+  $('#rp-daywr').textContent = data.dayWinRate != null ? data.dayWinRate + '%' : '—';
+  $('#rp-daywr').className = 'v ' + (data.dayWinRate == null ? '' : data.dayWinRate >= GOAL_TARGETS.dayWinRate ? 'pos' : 'neg');
   $('#rp-best').textContent = data.bestDay ? `${money(data.bestDay.pnl, true)} (${data.bestDay.date})` : '—';
   $('#rp-worst').textContent = data.worstDay ? `${money(data.worstDay.pnl, true)} (${data.worstDay.date})` : '—';
   $('#rp-dd').textContent = money(data.drawdown);
+
+  $('#rp-gp').textContent = money(o.grossProfit, true); $('#rp-gp').className = 'v pos';
+  $('#rp-gl').textContent = money(o.grossLoss, true); $('#rp-gl').className = 'v neg';
+  $('#rp-maxwin').textContent = money(o.maxWin, true); $('#rp-maxwin').className = 'v pos';
+
+  // ── Goal scorecard — color-coded vs the 2R / 42% / 70% targets ──
+  const wlrPct = o.winLossRatio != null ? Math.min(100, (o.winLossRatio / GOAL_TARGETS.winLossRatio) * 100) : 0;
+  const twrPct = o.winRate != null ? Math.min(100, (o.winRate / GOAL_TARGETS.tradeWinRate) * 100) : 0;
+  const dwrPct = data.dayWinRate != null ? Math.min(100, (data.dayWinRate / GOAL_TARGETS.dayWinRate) * 100) : 0;
+
+  const wlrGrade = gradeFor(wlrPct), twrGrade = gradeFor(twrPct), dwrGrade = gradeFor(dwrPct);
+  $('#sc-wlr-val').textContent = o.winLossRatio != null ? o.winLossRatio + 'R actual' : '—';
+  $('#sc-wlr-fill').style.width = wlrPct + '%';
+  $('#sc-wlr-fill').className = 'scorecard-fill grade-' + wlrGrade;
+  $('#sc-twr-val').textContent = o.winRate != null ? o.winRate + '% actual' : '—';
+  $('#sc-twr-fill').style.width = twrPct + '%';
+  $('#sc-twr-fill').className = 'scorecard-fill grade-' + twrGrade;
+  $('#sc-dwr-val').textContent = data.dayWinRate != null ? data.dayWinRate + '% actual' : '—';
+  $('#sc-dwr-fill').style.width = dwrPct + '%';
+  $('#sc-dwr-fill').className = 'scorecard-fill grade-' + dwrGrade;
+
+  const avgScore = Math.round((wlrPct + twrPct + dwrPct) / 3);
+  const overallGrade = gradeFor(avgScore);
+  const badge = $('#rp-score-badge');
+  badge.textContent = `${{ a: 'A', b: 'B', c: 'C', d: 'D' }[overallGrade]} · ${avgScore}/100`;
+  badge.className = 'grade-' + overallGrade;
 
   const l = data.long || {}, s = data.short || {};
   $('#rp-long-net').textContent = money(l.netProfit, true); $('#rp-long-net').className = 'v ' + posNeg(l.netProfit);
@@ -1025,13 +1126,21 @@ function sideStatsClient(trades) {
   const netProfit = trades.reduce((s, t) => s + (t.pnl || 0), 0);
   const grossProfit = wins.reduce((s, t) => s + (t.pnl || 0), 0);
   const grossLoss = losses.reduce((s, t) => s + (t.pnl || 0), 0);
+  const avgWin = wins.length ? grossProfit / wins.length : null;
+  const avgLoss = losses.length ? grossLoss / losses.length : null;
+  const maxWin = wins.length ? Math.max(...wins.map((t) => t.pnl || 0)) : null;
   return {
     trades: trades.length,
     netProfit: Math.round(netProfit * 100) / 100,
     winRate: trades.length ? Math.round((wins.length / trades.length) * 1000) / 10 : null,
-    avgWin: wins.length ? Math.round((grossProfit / wins.length) * 100) / 100 : null,
-    avgLoss: losses.length ? Math.round((grossLoss / losses.length) * 100) / 100 : null,
+    avgWin: avgWin != null ? Math.round(avgWin * 100) / 100 : null,
+    avgLoss: avgLoss != null ? Math.round(avgLoss * 100) / 100 : null,
     profitFactor: grossLoss !== 0 ? Math.round((grossProfit / Math.abs(grossLoss)) * 100) / 100 : null,
+    grossProfit: Math.round(grossProfit * 100) / 100,
+    grossLoss: Math.round(grossLoss * 100) / 100,
+    expectancy: trades.length ? Math.round((netProfit / trades.length) * 100) / 100 : null,
+    winLossRatio: (avgWin != null && avgLoss) ? Math.round((avgWin / Math.abs(avgLoss)) * 100) / 100 : null,
+    maxWin: maxWin != null ? Math.round(maxWin * 100) / 100 : null,
   };
 }
 
@@ -1098,6 +1207,9 @@ function computeScoped(data, rangeKey) {
     drawdown: Math.round(worst * 100) / 100,
     bestDay: bestDay ? { date: bestDay.date, pnl: bestDay.pnl } : null,
     worstDay: worstDay ? { date: worstDay.date, pnl: worstDay.pnl } : null,
+    dayCount: daily.length,
+    dayWinRate: daily.length ? Math.round((daily.filter((d) => d.pnl > 0).length / daily.length) * 1000) / 10 : null,
+    avgTradesPerDay: daily.length ? Math.round((daily.reduce((s, d) => s + d.trades, 0) / daily.length) * 10) / 10 : null,
     overall: sideStatsClient(trades),
     long: sideStatsClient(trades.filter((t) => (t.type || '').toUpperCase() === 'BUY')),
     short: sideStatsClient(trades.filter((t) => (t.type || '').toUpperCase() === 'SELL')),

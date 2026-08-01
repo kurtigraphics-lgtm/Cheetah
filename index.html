@@ -77,10 +77,12 @@
   #yr-slider-wrap { margin-top: 10px; padding: 0 2px; }
   #yr-label-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
   #yr-slider-label { font-size: 10.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
-  #yr-day-nav { display: flex; gap: 6px; }
+  #yr-day-nav { display: flex; gap: 12px; }
+  .yr-nav-group { display: flex; align-items: center; gap: 4px; }
+  .yr-nav-lbl { font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.3px; min-width: 20px; text-align: center; }
   #yr-day-nav button {
     background: var(--panel-alt); border: 1px solid var(--border); color: var(--text-dim);
-    border-radius: 4px; width: 24px; height: 24px; font-size: 10px; cursor: pointer;
+    border-radius: 4px; width: 22px; height: 22px; font-size: 9px; cursor: pointer;
     font-family: inherit; line-height: 1;
   }
   #yr-day-nav button:active { color: var(--gold); border-color: var(--gold); }
@@ -435,8 +437,16 @@
         <div id="yr-label-row">
           <div id="yr-slider-label"></div>
           <div id="yr-day-nav">
-            <button id="yr-day-back" title="Back one day">&#9668;</button>
-            <button id="yr-day-fwd" title="Forward one day">&#9658;</button>
+            <span class="yr-nav-group">
+              <button id="yr-from-back" title="From: back one day">&#9668;</button>
+              <span class="yr-nav-lbl">From</span>
+              <button id="yr-from-fwd" title="From: forward one day">&#9658;</button>
+            </span>
+            <span class="yr-nav-group">
+              <button id="yr-to-back" title="To: back one day">&#9668;</button>
+              <span class="yr-nav-lbl">To</span>
+              <button id="yr-to-fwd" title="To: forward one day">&#9658;</button>
+            </span>
           </div>
         </div>
         <div id="yr-track-wrap">
@@ -2755,27 +2765,32 @@ function init() {
   })();
   initYearSlider();
 
-  function shiftRangeDay(deltaDays) {
+  function ensureCustomBounds() {
     const scoped = lastScoped;
-    const curFrom = customFrom || (scoped && scoped.from) || yrStart;
-    const curTo = customTo || (scoped && scoped.to) || yrEnd;
-    const shiftedFrom = new Date(curFrom.getTime() + deltaDays * 86400000);
-    const shiftedTo = new Date(curTo.getTime() + deltaDays * 86400000);
-    // Snap to full-day boundaries — otherwise "to" often carries over
-    // as whatever time "now" happened to be (e.g. 14:32) rather than
-    // 23:59:59, silently excluding anything after that time on the
-    // target day (this was the actual cause of "yesterday's trades
-    // don't show up").
-    shiftedFrom.setHours(0, 0, 0, 0);
-    shiftedTo.setHours(23, 59, 59, 999);
-    customFrom = shiftedFrom;
-    customTo = shiftedTo;
+    if (!customFrom) customFrom = (scoped && scoped.from) || yrStart;
+    if (!customTo) customTo = (scoped && scoped.to) || yrEnd;
+  }
+  function shiftBound(which, deltaDays) {
+    ensureCustomBounds();
+    if (which === 'from') {
+      const shifted = new Date(customFrom.getTime() + deltaDays * 86400000);
+      shifted.setHours(0, 0, 0, 0);
+      if (shifted > customTo) return; // don't let From pass To
+      customFrom = shifted;
+    } else {
+      const shifted = new Date(customTo.getTime() + deltaDays * 86400000);
+      shifted.setHours(23, 59, 59, 999);
+      if (shifted < customFrom) return; // don't let To go before From
+      customTo = shifted;
+    }
     selectedRange = 'custom';
     document.querySelectorAll('.range-chip').forEach((b) => b.classList.remove('active'));
     renderAll();
   }
-  $('#yr-day-back').addEventListener('click', () => shiftRangeDay(-1));
-  $('#yr-day-fwd').addEventListener('click', () => shiftRangeDay(1));
+  $('#yr-from-back').addEventListener('click', () => shiftBound('from', -1));
+  $('#yr-from-fwd').addEventListener('click', () => shiftBound('from', 1));
+  $('#yr-to-back').addEventListener('click', () => shiftBound('to', -1));
+  $('#yr-to-fwd').addEventListener('click', () => shiftBound('to', 1));
 
   document.querySelectorAll('.eq-toggle-btn[data-mode]').forEach((btn) => {
     btn.addEventListener('click', () => {

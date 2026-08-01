@@ -125,6 +125,15 @@
   .stat-value.neg { color: var(--purple-bright); }
 
   #account-panel { display: none; background: var(--panel-alt); border-bottom: 1px solid var(--border); padding: 12px 16px; gap: 22px; }
+  #guardrail-panel { background: var(--panel); border-bottom: 1px solid var(--border); padding: 10px 16px 12px; }
+  .gr-row { margin-top: 8px; }
+  .gr-row:first-child { margin-top: 0; }
+  .gr-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+  .gr-label span { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; text-transform: none; letter-spacing: 0; }
+  .gr-bar { height: 5px; border-radius: 3px; background: var(--panel-alt); overflow: hidden; }
+  .gr-bar i { display: block; height: 100%; border-radius: 3px; background: var(--green-bright); transition: width 0.2s ease; }
+  .gr-bar i.warn { background: var(--gold); }
+  .gr-bar i.hit { background: var(--purple-bright); }
 
   /* ── Tab content area ─────────────────────────────────────────── */
   #tab-content { flex: 1; overflow-y: auto; padding-bottom: 70px; }
@@ -250,8 +259,8 @@
   }
   .eq-svg-wrap { position: relative; }
   #eq-yaxis { position: absolute; inset: 0; pointer-events: none; }
-  #eq-brush-wrap { margin-top: 8px; touch-action: none; }
-  #eq-brush-svg { width: 100%; height: 40px; display: block; }
+  #eq-brush-wrap { margin-top: 10px; touch-action: none; border-radius: 6px; overflow: hidden; background: var(--panel-alt); border: 1px solid var(--border); }
+  #eq-brush-svg { width: 100%; height: 44px; display: block; }
 
   /* Report */
   .report-section { padding: 14px 16px; border-bottom: 1px solid var(--border); }
@@ -506,6 +515,17 @@
       <div class="stat"><div class="stat-label">Return</div><div class="stat-value" id="stat-return">—</div></div>
     </div>
 
+    <div id="guardrail-panel">
+      <div class="gr-row">
+        <div class="gr-label">Trades Today <span id="gr-trades-txt">0/15</span></div>
+        <div class="gr-bar"><i id="gr-trades-fill"></i></div>
+      </div>
+      <div class="gr-row">
+        <div class="gr-label">Daily Loss <span id="gr-loss-txt">0.0%/2%</span></div>
+        <div class="gr-bar"><i id="gr-loss-fill"></i></div>
+      </div>
+    </div>
+
     <div id="tab-content">
       <div class="tab-pane active" id="pane-trades">
         <div id="ptr-indicator">↓ Pull to refresh</div>
@@ -569,7 +589,7 @@
           </div>
           <div class="chart-caption" id="equity-caption">Drag to pan · pinch to zoom · double-tap to reset · tap a point to inspect</div>
           <div id="eq-brush-wrap">
-            <svg id="eq-brush-svg" viewBox="0 0 400 40" preserveAspectRatio="none"></svg>
+            <svg id="eq-brush-svg" viewBox="0 0 400 44" preserveAspectRatio="none"></svg>
           </div>
         </div>
       </div>
@@ -902,9 +922,10 @@ function renderSummary(scoped, data) {
   // figures instead from realized P&L on trades since the account's
   // actual start date (15 Jun 2026), against the real starting balance.
   const liveTrades = (data.recentTrades || []).filter((t) => t.closeDate && t.closeDate >= '2026-06-08');
+  let liveEquity = ACCOUNT_STARTING_BALANCE;
   if (liveTrades.length) {
     const livePnl = liveTrades.reduce((s, t) => s + (t.pnl || 0), 0);
-    const liveEquity = ACCOUNT_STARTING_BALANCE + livePnl;
+    liveEquity = ACCOUNT_STARTING_BALANCE + livePnl;
     $('#account-panel').style.display = 'flex';
     $('#stat-balance').textContent = money(ACCOUNT_STARTING_BALANCE);
     $('#stat-equity').textContent = money(liveEquity);
@@ -915,6 +936,27 @@ function renderSummary(scoped, data) {
   } else {
     $('#account-panel').style.display = 'none';
   }
+
+  // Day guardrails — same real formula as desktop: 15 trades/day, 2%
+  // daily loss cap (= 8 × the 0.25%-of-baseline risk unit). Desktop
+  // rebases the baseline monthly against RISK_BASE_START; here it's
+  // approximated with today's live equity, which converges to the same
+  // number in practice and avoids duplicating that monthly-rebase logic.
+  const todayKeyUK = new Date().toISOString().slice(0, 10);
+  const todaysTrades = (data.recentTrades || []).filter((t) => t.closeDate === todayKeyUK);
+  const netToday = todaysTrades.reduce((s, t) => s + (t.pnl || 0), 0);
+  const riskUnit = liveEquity * 0.0025;
+  const lossCap = riskUnit * 8; // 2% of baseline
+  const tradeFrac = Math.min(1, todaysTrades.length / 15);
+  const lossFrac = netToday < 0 && lossCap > 0 ? Math.min(1, -netToday / lossCap) : 0;
+  $('#gr-trades-txt').textContent = `${todaysTrades.length}/15`;
+  const trFill = $('#gr-trades-fill');
+  trFill.style.width = (tradeFrac * 100) + '%';
+  trFill.className = tradeFrac >= 1 ? 'hit' : tradeFrac >= 0.7 ? 'warn' : '';
+  $('#gr-loss-txt').textContent = `${(lossFrac * 2).toFixed(2)}%/2%`;
+  const lossFill = $('#gr-loss-fill');
+  lossFill.style.width = (lossFrac * 100) + '%';
+  lossFill.className = lossFrac >= 1 ? 'hit' : lossFrac >= 0.7 ? 'warn' : '';
 
   $('#live-pill').classList.toggle('on', isRecent(data.updatedAt));
   renderSparklines(data);
@@ -1862,7 +1904,8 @@ function renderEqBrush() {
   const curve = eqCurveRef;
   const totalLen = eqTotalLen || curve.length;
   if (!curve.length) return;
-  const W = 400, H = 40;
+  const W = 400, H = 44;
+  const padY = 5;
   const ns = 'http://www.w3.org/2000/svg';
 
   const values = curve.map((p) => p.cumulative);
@@ -1871,18 +1914,46 @@ function renderEqBrush() {
   const domainVals = values.concat(goalSampled.length ? goalSampled : []);
   const min = Math.min(0, ...domainVals), max = Math.max(0, ...domainVals);
   const span = (max - min) || 1;
-  const yAt = (v) => 3 + (1 - (v - min) / span) * (H - 6);
+  const yAt = (v) => padY + (1 - (v - min) / span) * (H - padY * 2);
   // Sparkline only covers real data, scaled against the (possibly larger)
   // total domain — leaves a blank strip on the right when the goal
   // projection extends the domain into the future.
   const xAt = (i) => (i / totalLen) * W;
 
-  let path = `M ${xAt(0)} ${yAt(values[0])}`;
-  for (let i = 1; i < values.length; i++) path += ` L ${xAt(i)} ${yAt(values[i])}`;
+  // Defs: soft fill gradient under the sparkline + subtle glow for the
+  // selection window, so the strip reads as a real mini-chart rather
+  // than a flat debug line.
+  const defs = document.createElementNS(ns, 'defs');
+  defs.innerHTML = `
+    <linearGradient id="eqBrushFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#8a8a92" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#8a8a92" stop-opacity="0"/>
+    </linearGradient>
+  `;
+  svg.appendChild(defs);
+
+  let linePath = `M ${xAt(0)} ${yAt(values[0])}`;
+  for (let i = 1; i < values.length; i++) linePath += ` L ${xAt(i)} ${yAt(values[i])}`;
+  let areaPath = `M ${xAt(0)} ${H} L ${xAt(0)} ${yAt(values[0])}`;
+  for (let i = 1; i < values.length; i++) areaPath += ` L ${xAt(i)} ${yAt(values[i])}`;
+  areaPath += ` L ${xAt(values.length - 1)} ${H} Z`;
+
+  const area = document.createElementNS(ns, 'path');
+  area.setAttribute('d', areaPath); area.setAttribute('fill', 'url(#eqBrushFill)');
+  svg.appendChild(area);
+
   const line = document.createElementNS(ns, 'path');
-  line.setAttribute('d', path); line.setAttribute('fill', 'none');
-  line.setAttribute('stroke', '#8a8a92'); line.setAttribute('stroke-width', '1');
+  line.setAttribute('d', linePath); line.setAttribute('fill', 'none');
+  line.setAttribute('stroke', '#9a9aa4'); line.setAttribute('stroke-width', '1.1');
+  line.setAttribute('stroke-linejoin', 'round');
   svg.appendChild(line);
+
+  // Small dot marking the most recent real data point.
+  const lastX = xAt(values.length - 1), lastY = yAt(values[values.length - 1]);
+  const liveDot = document.createElementNS(ns, 'circle');
+  liveDot.setAttribute('cx', lastX); liveDot.setAttribute('cy', lastY); liveDot.setAttribute('r', '2');
+  liveDot.setAttribute('fill', '#9a9aa4');
+  svg.appendChild(liveDot);
 
   // Full gold goal-line trace across the whole strip — this is the
   // UNREBASED, whole-account overview trend (unlike the main chart above,
@@ -1901,7 +1972,7 @@ function renderEqBrush() {
     const goalLine = document.createElementNS(ns, 'path');
     goalLine.setAttribute('d', goalPath); goalLine.setAttribute('fill', 'none');
     goalLine.setAttribute('stroke', '#ffd23c'); goalLine.setAttribute('stroke-width', '1');
-    goalLine.setAttribute('stroke-dasharray', '3 3'); goalLine.setAttribute('opacity', '0.75');
+    goalLine.setAttribute('stroke-dasharray', '2.5 3'); goalLine.setAttribute('opacity', '0.6');
     svg.appendChild(goalLine);
   }
 
@@ -1909,27 +1980,40 @@ function renderEqBrush() {
   const rightX = ((eqPanStart + eqVisibleCount) / totalLen) * W;
 
   const dimLeft = document.createElementNS(ns, 'rect');
-  dimLeft.setAttribute('x', 0); dimLeft.setAttribute('y', 0); dimLeft.setAttribute('width', leftX); dimLeft.setAttribute('height', H);
-  dimLeft.setAttribute('fill', 'rgba(0,0,0,0.6)');
+  dimLeft.setAttribute('x', 0); dimLeft.setAttribute('y', 0); dimLeft.setAttribute('width', Math.max(0, leftX)); dimLeft.setAttribute('height', H);
+  dimLeft.setAttribute('fill', 'rgba(10,10,11,0.72)');
   svg.appendChild(dimLeft);
   const dimRight = document.createElementNS(ns, 'rect');
-  dimRight.setAttribute('x', rightX); dimRight.setAttribute('y', 0); dimRight.setAttribute('width', W - rightX); dimRight.setAttribute('height', H);
-  dimRight.setAttribute('fill', 'rgba(0,0,0,0.6)');
+  dimRight.setAttribute('x', rightX); dimRight.setAttribute('y', 0); dimRight.setAttribute('width', Math.max(0, W - rightX)); dimRight.setAttribute('height', H);
+  dimRight.setAttribute('fill', 'rgba(10,10,11,0.72)');
   svg.appendChild(dimRight);
 
+  const winW = Math.max(2, rightX - leftX);
   const win = document.createElementNS(ns, 'rect');
-  win.setAttribute('x', leftX); win.setAttribute('y', 0.5);
-  win.setAttribute('width', Math.max(1, rightX - leftX)); win.setAttribute('height', H - 1);
-  win.setAttribute('fill', 'rgba(91,141,238,0.08)'); win.setAttribute('stroke', '#5b8dee');
-  win.setAttribute('stroke-width', '1.5');
+  win.setAttribute('x', leftX); win.setAttribute('y', 1);
+  win.setAttribute('width', winW); win.setAttribute('height', H - 2);
+  win.setAttribute('rx', '5');
+  win.setAttribute('fill', 'rgba(91,141,238,0.10)'); win.setAttribute('stroke', '#6f9dff');
+  win.setAttribute('stroke-width', '1.4');
   svg.appendChild(win);
 
-  [leftX, rightX].forEach((edgeX) => {
-    const handle = document.createElementNS(ns, 'rect');
-    handle.setAttribute('x', edgeX - 2); handle.setAttribute('y', 0);
-    handle.setAttribute('width', 4); handle.setAttribute('height', H);
-    handle.setAttribute('fill', '#5b8dee');
-    svg.appendChild(handle);
+  // Grab handles: a slim full-height rail (easy hit target) topped with
+  // a small rounded pill grip, so the drag zones are still generous but
+  // it reads as an intentional handle rather than a stray bar.
+  [{ x: leftX, side: 'left' }, { x: rightX, side: 'right' }].forEach(({ x: edgeX }) => {
+    const rail = document.createElementNS(ns, 'rect');
+    rail.setAttribute('x', edgeX - 1.2); rail.setAttribute('y', 3);
+    rail.setAttribute('width', 2.4); rail.setAttribute('height', H - 6);
+    rail.setAttribute('rx', '1.2');
+    rail.setAttribute('fill', '#6f9dff');
+    svg.appendChild(rail);
+    const grip = document.createElementNS(ns, 'rect');
+    grip.setAttribute('x', edgeX - 4); grip.setAttribute('y', H / 2 - 6);
+    grip.setAttribute('width', 8); grip.setAttribute('height', 12);
+    grip.setAttribute('rx', '4');
+    grip.setAttribute('fill', '#6f9dff');
+    grip.setAttribute('stroke', '#0a0a0b'); grip.setAttribute('stroke-width', '1.5');
+    svg.appendChild(grip);
   });
 
   if (!eqBrushBound) { attachEqBrushDrag(); eqBrushBound = true; }

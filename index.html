@@ -150,6 +150,11 @@
     padding: 8px; border-radius: 4px; font-size: 11.5px; font-weight: 700; cursor: pointer; font-family: inherit;
   }
   .eq-toggle-btn.active { color: var(--green-bright); border-color: var(--green); background: #16281f; }
+  .eq-scope-btn {
+    flex: 1; background: var(--panel-alt); border: 1px solid var(--border); color: var(--text-dim);
+    padding: 8px; border-radius: 4px; font-size: 11.5px; font-weight: 700; cursor: pointer; font-family: inherit;
+  }
+  .eq-scope-btn.active { color: var(--gold); border-color: var(--gold); background: #2a2308; }
   .eq-stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
   .eq-stat { background: var(--panel-alt); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
   .eq-stat-v { font-size: 13px; font-weight: 700; margin-top: 3px; font-variant-numeric: tabular-nums; }
@@ -300,9 +305,9 @@
       <div id="range-label"></div>
       <div id="range-chips">
         <button class="range-chip" data-range="today">Today</button>
-        <button class="range-chip active" data-range="1w">1W</button>
+        <button class="range-chip" data-range="1w">1W</button>
         <button class="range-chip" data-range="2w">2W</button>
-        <button class="range-chip" data-range="1m">1M</button>
+        <button class="range-chip active" data-range="1m">1M</button>
         <button class="range-chip" data-range="3m">3M</button>
         <button class="range-chip" data-range="all">All</button>
       </div>
@@ -356,6 +361,10 @@
 
       <div class="tab-pane" id="pane-equity">
         <div class="chart-wrap">
+          <div class="eq-toggle">
+            <button class="eq-scope-btn active" data-scope="free">Free</button>
+            <button class="eq-scope-btn" data-scope="range">Range</button>
+          </div>
           <div class="eq-toggle">
             <button class="eq-toggle-btn active" data-mode="cumulative">Cumulative</button>
             <button class="eq-toggle-btn" data-mode="daily">Daily</button>
@@ -860,10 +869,16 @@ function renderChart(scopedTrades) {
 
 // ── Render: Equity tab (cumulative area / daily bars + inspect) ────
 let eqMode = 'cumulative';
+let eqScope = 'free'; // 'free' = full account history, 'range' = respects the top range picker
 
 function renderEquity(scoped) {
-  const daily = scoped.daily || [];
-  const curve = scoped.tradeCurve || [];
+  // Free mode shows the whole synced account history regardless of the
+  // top range picker (mirrors desktop's eqFreeMode) — cheaply computed by
+  // re-running computeScoped with 'all', which has no lower bound.
+  const view = eqScope === 'free' ? computeScoped(currentData, 'all') : scoped;
+
+  const daily = view.daily || [];
+  const curve = view.tradeCurve || [];
   $('#eq-tooltip').style.display = 'none';
 
   if (!curve.length) {
@@ -878,9 +893,9 @@ function renderEquity(scoped) {
   const peak = Math.max(0, ...values);
   $('#eq-current').textContent = money(values[values.length - 1], true);
   $('#eq-peak').textContent = money(peak, true);
-  $('#eq-dd').textContent = money(scoped.drawdown);
-  $('#eq-best').textContent = scoped.bestDay ? money(scoped.bestDay.pnl, true) : '—';
-  $('#eq-worst').textContent = scoped.worstDay ? money(scoped.worstDay.pnl, true) : '—';
+  $('#eq-dd').textContent = money(view.drawdown);
+  $('#eq-best').textContent = view.bestDay ? money(view.bestDay.pnl, true) : '—';
+  $('#eq-worst').textContent = view.worstDay ? money(view.worstDay.pnl, true) : '—';
 
   if (eqMode === 'cumulative') drawEquityCumulative(curve);
   else drawEquityDaily(daily);
@@ -1106,7 +1121,7 @@ function renderCalendar(data) {
 }
 
 // ── Range scoping — mirrors desktop's quick-range buttons ──────────
-let selectedRange = '1w';
+let selectedRange = '1m';
 let lastScoped = null;
 let customFrom = null, customTo = null; // set by dragging the brush slider
 
@@ -1435,6 +1450,15 @@ function init() {
       document.querySelectorAll('.eq-toggle-btn').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
       eqMode = btn.dataset.mode;
+      if (lastScoped) renderEquity(lastScoped);
+    });
+  });
+
+  document.querySelectorAll('.eq-scope-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.eq-scope-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      eqScope = btn.dataset.scope;
       if (lastScoped) renderEquity(lastScoped);
     });
   });

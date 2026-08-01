@@ -131,9 +131,11 @@
      scrolls vertically through it) is correct there. Equity/trade charts
      DO scroll horizontally via their .eq-scroll wrapper — pan-y was
      blocking that drag gesture entirely, which is why dragging did nothing. */
-  #equity-svg, #tcm-svg { touch-action: pan-x; }
+  #equity-svg { touch-action: none; }
+  #tcm-svg { touch-action: pan-x; }
   #chart-svg { width: 100%; height: 220px; }
   .eq-scroll { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 6px; }
+  #eq-scroll { overflow: hidden; touch-action: none; }
   #equity-svg { height: 220px; display: block; }
   .chart-caption { font-size: 10.5px; color: var(--text-dim); margin-top: 8px; text-align: center; }
   .chart-legend { display: flex; gap: 14px; justify-content: center; margin-top: 10px; font-size: 10px; color: var(--text-dim); }
@@ -382,7 +384,7 @@
             </div>
             <div id="eq-tooltip"></div>
           </div>
-          <div class="chart-caption" id="equity-caption">Drag left to scroll history · tap to inspect a point</div>
+          <div class="chart-caption" id="equity-caption">Drag to pan · pinch to zoom · double-tap to reset · tap a point to inspect</div>
         </div>
       </div>
 
@@ -901,29 +903,53 @@ function renderEquity(scoped) {
   else drawEquityDaily(daily);
 }
 
-function drawEquityCumulative(curve) {
+// ── Equity cumulative chart — real pan + pinch-zoom ─────────────────
+// Desktop's trade chart works as "scroll = zoom, drag = pan, dbl-click =
+// reset" — this is the touch equivalent: one-finger drag pans, two-finger
+// pinch zooms (anchored on the pinch midpoint), double-tap resets to the
+// full view. No native scroll container involved — the SVG is a fixed
+// 400x220 viewBox and we redraw whichever window of points is visible.
+let eqCurveRef = [];
+let eqVisibleCount = 0;
+let eqPanStart = 0; // index of the leftmost visible point (float)
+let eqGestureBound = false;
+
+function eqClamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+function drawEquityCumulative(curve, keepView) {
+  eqCurveRef = curve;
+  if (!keepView || !eqVisibleCount) {
+    eqVisibleCount = curve.length;
+    eqPanStart = 0;
+  }
+  eqVisibleCount = eqClamp(eqVisibleCount, Math.min(3, curve.length), curve.length);
+  eqPanStart = eqClamp(eqPanStart, 0, Math.max(0, curve.length - eqVisibleCount));
+
   const svg = $('#equity-svg');
   svg.innerHTML = '';
-  const H = 220, padTop = 12, padBottom = 12;
-  const pxPerPoint = curve.length > 150 ? 4 : curve.length > 60 ? 6 : 10;
-  const W = Math.max(400, curve.length * pxPerPoint);
+  const W = 400, H = 220, padTop = 12, padBottom = 12;
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-  svg.setAttribute('width', W);
+  svg.removeAttribute('width');
 
-  const values = curve.map((p) => p.cumulative);
+  const startIdx = Math.floor(eqPanStart);
+  const endIdx = Math.min(curve.length - 1, Math.ceil(eqPanStart + eqVisibleCount));
+  const slice = curve.slice(startIdx, endIdx + 1);
+  if (!slice.length) return;
+
+  const values = slice.map((p) => p.cumulative);
   const min = Math.min(0, ...values), max = Math.max(0, ...values);
   const span = (max - min) || 1;
   const yAt = (v) => padTop + (1 - (v - min) / span) * (H - padTop - padBottom);
-  const xAt = (i) => (i / (curve.length - 1 || 1)) * W;
+  const xAt = (i) => ((startIdx + i - eqPanStart) / eqVisibleCount) * W;
 
   const ns = 'http://www.w3.org/2000/svg';
   let linePath = `M ${xAt(0)} ${yAt(values[0])}`;
   let areaPath = `M ${xAt(0)} ${yAt(0)} L ${xAt(0)} ${yAt(values[0])}`;
-  for (let i = 1; i < curve.length; i++) {
+  for (let i = 1; i < slice.length; i++) {
     linePath += ` L ${xAt(i)} ${yAt(values[i])}`;
     areaPath += ` L ${xAt(i)} ${yAt(values[i])}`;
   }
-  areaPath += ` L ${xAt(curve.length - 1)} ${yAt(0)} Z`;
+  areaPath += ` L ${xAt(slice.length - 1)} ${yAt(0)} Z`;
 
   const area = document.createElementNS(ns, 'path');
   area.setAttribute('d', areaPath); area.setAttribute('fill', 'rgba(52,225,135,0.14)');
@@ -939,18 +965,11 @@ function drawEquityCumulative(curve) {
   zero.setAttribute('stroke', '#2a2a2e'); zero.setAttribute('stroke-width', '1');
   svg.appendChild(zero);
 
-  const first = curve[0], last = curve[curve.length - 1];
-  $('#equity-caption').textContent = `${first.date}${first.time ? ' ' + first.time : ''} → ${last.date}${last.time ? ' ' + last.time : ''} · ${money(values[values.length - 1], true)}`;
+  const first = slice[0], last = slice[slice.length - 1];
+  const zoomedTag = eqVisibleCount < curve.length ? ' · pinch out or double-tap to reset' : '';
+  $('#equity-caption').textContent = `${first.date}${first.time ? ' ' + first.time : ''} → ${last.date}${last.time ? ' ' + last.time : ''} · ${money(values[values.length - 1], true)}${zoomedTag}`;
 
-  attachEquityInspect(svg, curve.map((p, i) => ({
-    x: xAt(i), y: yAt(p.cumulative), value: p.cumulative,
-    label: p.time ? `${p.date} ${p.time}` : p.date,
-  })));
-
-  // Default view: scroll to show the most recent trades, same as
-  // desktop's chart having "now" visible at the right edge.
-  const scroller = $('#eq-scroll');
-  requestAnimationFrame(() => { scroller.scrollLeft = scroller.scrollWidth; });
+  if (!eqGestureBound) { attachEquityGestures(); eqGestureBound = true; }
 }
 
 function drawEquityDaily(daily) {
@@ -959,8 +978,7 @@ function drawEquityDaily(daily) {
   if (!daily.length) return;
   const W = 400, H = 220, midY = H / 2;
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-  svg.setAttribute('width', W);
-  $('#eq-scroll').scrollLeft = 0;
+  svg.removeAttribute('width');
   const maxAbs = Math.max(1, ...daily.map((d) => Math.abs(d.pnl)));
   const barW = Math.max(2, (W / daily.length) - 2);
   const ns = 'http://www.w3.org/2000/svg';
@@ -969,7 +987,6 @@ function drawEquityDaily(daily) {
   zero.setAttribute('stroke', '#2a2a2e'); zero.setAttribute('stroke-width', '1');
   svg.appendChild(zero);
   let x = 4;
-  const points = [];
   for (const d of daily) {
     const h = Math.abs(d.pnl) / maxAbs * (H / 2 - 10);
     const rect = document.createElementNS(ns, 'rect');
@@ -978,40 +995,119 @@ function drawEquityDaily(daily) {
     rect.setAttribute('height', Math.max(1, h));
     rect.setAttribute('fill', d.pnl >= 0 ? '#34e187' : '#a855f7');
     svg.appendChild(rect);
-    points.push({ x: x + barW / 2, y: d.pnl >= 0 ? midY - h : midY + h, label: d.date, value: d.pnl });
     x += barW + 2;
   }
   $('#equity-caption').textContent = `${daily[0].date} → ${daily[daily.length - 1].date} · daily P&L`;
-  attachEquityInspect(svg, points);
 }
 
-// Tap/click nearest point and show a small tooltip above it — the
-// mobile equivalent of hovering the desktop equity chart. The SVG is
-// rendered 1:1 (width attribute === viewBox width), so client coords
-// map directly to viewBox units regardless of horizontal scroll.
-function attachEquityInspect(svg, points) {
-  const tooltip = $('#eq-tooltip');
-  const wrap = document.querySelector('.eq-svg-wrap');
-  const handler = (evt) => {
-    const svgRect = svg.getBoundingClientRect();
-    const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
-    const svgX = clientX - svgRect.left;
-    let nearest = points[0], bestDist = Infinity;
-    for (const p of points) {
-      const d = Math.abs(p.x - svgX);
-      if (d < bestDist) { bestDist = d; nearest = p; }
+// One-finger drag pans, two-finger pinch zooms around the pinch midpoint,
+// double-tap resets to the full view. Bound once — subsequent redraws
+// (drawEquityCumulative with keepView=true) don't rebind.
+function attachEquityGestures() {
+  const wrap = $('#equity-svg').parentElement; // #eq-scroll
+  let panState = null;   // { startX, startPanStart, moved }
+  let pinchState = null; // { startDist, startVisible, centerIdx }
+  let lastTapAt = 0;
+
+  function indexAtClientX(clientX) {
+    const rect = wrap.getBoundingClientRect();
+    const pct = eqClamp((clientX - rect.left) / rect.width, 0, 1);
+    return eqPanStart + pct * eqVisibleCount;
+  }
+
+  wrap.addEventListener('touchstart', (evt) => {
+    if (evt.touches.length === 1) {
+      const now = Date.now();
+      if (now - lastTapAt < 320) {
+        eqVisibleCount = eqCurveRef.length;
+        eqPanStart = 0;
+        drawEquityCumulative(eqCurveRef, true);
+        lastTapAt = 0;
+        panState = null;
+        return;
+      }
+      lastTapAt = now;
+      panState = { startX: evt.touches[0].clientX, startPanStart: eqPanStart, moved: false };
+      pinchState = null;
+    } else if (evt.touches.length === 2) {
+      panState = null;
+      const [t0, t1] = evt.touches;
+      const dist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+      const midX = (t0.clientX + t1.clientX) / 2;
+      pinchState = { startDist: dist, startVisible: eqVisibleCount, centerIdx: indexAtClientX(midX) };
     }
-    const wrapRect = wrap.getBoundingClientRect();
-    const pointClientX = svgRect.left + nearest.x;
-    const pointClientY = svgRect.top + nearest.y;
-    tooltip.style.left = (pointClientX - wrapRect.left) + 'px';
-    tooltip.style.top = (pointClientY - wrapRect.top) + 'px';
-    tooltip.style.display = 'block';
-    tooltip.innerHTML = `<b>${nearest.label}</b> · <span style="color:${nearest.value >= 0 ? '#34e187' : '#a855f7'}">${money(nearest.value, true)}</span>`;
-  };
-  svg.onclick = handler;
-  svg.ontouchstart = handler;
-  svg.ontouchmove = handler;
+  }, { passive: true });
+
+  wrap.addEventListener('touchmove', (evt) => {
+    if (evt.touches.length === 1 && panState) {
+      const dx = evt.touches[0].clientX - panState.startX;
+      if (Math.abs(dx) > 3) panState.moved = true;
+      const rect = wrap.getBoundingClientRect();
+      const idxDelta = (dx / rect.width) * eqVisibleCount;
+      eqPanStart = eqClamp(panState.startPanStart - idxDelta, 0, Math.max(0, eqCurveRef.length - eqVisibleCount));
+      drawEquityCumulative(eqCurveRef, true);
+    } else if (evt.touches.length === 2 && pinchState) {
+      const [t0, t1] = evt.touches;
+      const dist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+      const scale = dist / pinchState.startDist;
+      const newVisible = eqClamp(pinchState.startVisible / scale, Math.min(3, eqCurveRef.length), eqCurveRef.length);
+      const pctBefore = eqVisibleCount ? (pinchState.centerIdx - eqPanStart) / eqVisibleCount : 0.5;
+      eqVisibleCount = newVisible;
+      eqPanStart = eqClamp(pinchState.centerIdx - pctBefore * eqVisibleCount, 0, Math.max(0, eqCurveRef.length - eqVisibleCount));
+      drawEquityCumulative(eqCurveRef, true);
+    }
+  }, { passive: true });
+
+  wrap.addEventListener('touchend', (evt) => {
+    if (evt.touches.length === 0) {
+      if (panState && !panState.moved) showEquityTapTooltip(panState.startX);
+      panState = null; pinchState = null;
+    } else if (evt.touches.length === 1) {
+      pinchState = null;
+      panState = { startX: evt.touches[0].clientX, startPanStart: eqPanStart, moved: false };
+    }
+  });
+
+  // Mouse fallback for desktop testing — drag to pan only.
+  wrap.addEventListener('mousedown', (evt) => {
+    panState = { startX: evt.clientX, startPanStart: eqPanStart, moved: false };
+  });
+  window.addEventListener('mousemove', (evt) => {
+    if (!panState || eqMode !== 'cumulative') return;
+    const dx = evt.clientX - panState.startX;
+    if (Math.abs(dx) > 3) panState.moved = true;
+    if (!panState.moved) return;
+    const rect = wrap.getBoundingClientRect();
+    const idxDelta = (dx / rect.width) * eqVisibleCount;
+    eqPanStart = eqClamp(panState.startPanStart - idxDelta, 0, Math.max(0, eqCurveRef.length - eqVisibleCount));
+    drawEquityCumulative(eqCurveRef, true);
+  });
+  window.addEventListener('mouseup', (evt) => {
+    if (panState && !panState.moved) showEquityTapTooltip(evt.clientX);
+    panState = null;
+  });
+  wrap.addEventListener('dblclick', () => {
+    eqVisibleCount = eqCurveRef.length;
+    eqPanStart = 0;
+    drawEquityCumulative(eqCurveRef, true);
+  });
+}
+
+function showEquityTapTooltip(clientX) {
+  if (!eqCurveRef.length) return;
+  const idx = Math.round(eqClamp((clientX - $('#equity-svg').getBoundingClientRect().left) / $('#equity-svg').getBoundingClientRect().width, 0, 1) * eqVisibleCount + eqPanStart);
+  const point = eqCurveRef[eqClamp(idx, 0, eqCurveRef.length - 1)];
+  if (!point) return;
+  const svgRect = $('#equity-svg').getBoundingClientRect();
+  const wrapRect = $('.eq-svg-wrap').getBoundingClientRect();
+  const xPct = ((idx - eqPanStart) / eqVisibleCount);
+  const tooltip = $('#eq-tooltip');
+  tooltip.style.left = (svgRect.left - wrapRect.left + xPct * svgRect.width) + 'px';
+  tooltip.style.top = (svgRect.top - wrapRect.top + svgRect.height * 0.3) + 'px';
+  tooltip.style.display = 'block';
+  tooltip.innerHTML = `<b>${point.time ? point.date + ' ' + point.time : point.date}</b> · <span style="color:${point.cumulative >= 0 ? '#34e187' : '#a855f7'}">${money(point.cumulative, true)}</span>`;
+  clearTimeout(showEquityTapTooltip._t);
+  showEquityTapTooltip._t = setTimeout(() => { tooltip.style.display = 'none'; }, 2000);
 }
 
 // ── Render: Report tab ──────────────────────────────────────────────

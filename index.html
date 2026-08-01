@@ -175,6 +175,7 @@
     padding: 8px; border-radius: 4px; font-size: 11.5px; font-weight: 700; cursor: pointer; font-family: inherit;
   }
   .eq-toggle-btn.active { color: var(--green-bright); border-color: var(--green); background: #16281f; }
+  .eq-toggle-btn.goal-btn.active { color: var(--gold); border-color: var(--gold); background: #2a2308; }
   .eq-scope-btn {
     flex: 1; background: var(--panel-alt); border: 1px solid var(--border); color: var(--text-dim);
     padding: 8px; border-radius: 4px; font-size: 11.5px; font-weight: 700; cursor: pointer; font-family: inherit;
@@ -190,6 +191,7 @@
   .eq-stat-v { font-size: 13px; font-weight: 700; margin-top: 3px; font-variant-numeric: tabular-nums; }
   .eq-stat-v.pos { color: var(--green-bright); }
   .eq-stat-v.neg { color: var(--purple-bright); }
+  .eq-stat-v.goal { color: var(--gold); }
   #eq-tooltip {
     position: absolute; pointer-events: none; background: var(--panel);
     border: 1px solid var(--border); border-radius: 4px; padding: 5px 8px;
@@ -429,6 +431,7 @@
             <button class="eq-toggle-btn active" data-mode="cumulative">Cumulative</button>
             <button class="eq-toggle-btn" data-mode="drawdown">Drawdown</button>
             <button class="eq-toggle-btn" data-mode="daily">Daily</button>
+            <button class="eq-toggle-btn goal-btn active" id="goal-toggle-btn">Goal</button>
           </div>
           <div class="eq-stat-grid">
             <div class="eq-stat"><div class="stat-label">Current</div><div class="eq-stat-v" id="eq-current">—</div></div>
@@ -437,6 +440,8 @@
             <div class="eq-stat"><div class="stat-label">Trades</div><div class="eq-stat-v" id="eq-trades">—</div></div>
             <div class="eq-stat"><div class="stat-label">Best Day</div><div class="eq-stat-v pos" id="eq-best">—</div></div>
             <div class="eq-stat"><div class="stat-label">Worst Day</div><div class="eq-stat-v neg" id="eq-worst">—</div></div>
+            <div class="eq-stat"><div class="stat-label">Goal Pace (2R/70%)</div><div class="eq-stat-v goal" id="eq-goal-pace">—</div></div>
+            <div class="eq-stat"><div class="stat-label">Gap to Goal</div><div class="eq-stat-v" id="eq-goal-gap">—</div></div>
           </div>
           <div class="eq-svg-wrap">
             <div class="eq-scroll" id="eq-scroll">
@@ -1052,6 +1057,39 @@ function renderChartByDay(daily) {
 // ── Render: Equity tab (cumulative area / daily bars + inspect) ────
 let eqMode = 'cumulative';
 let eqScope = 'free'; // 'free' = full account history, 'range' = respects the top range picker
+let eqGoalOn = true;
+let eqGoalRef = null; // { goalPoints, goalFinal } for the currently rendered view
+
+// Faithful port of the desktop equity chart's goal-pace formula (see
+// renderer.js "Goal pace: mirrors the cAlgo dashboard's target (2R avg
+// win @ 70% day win rate)") — not an invented number. Risk unit is this
+// view's average loss (a proxy for 1R, same as desktop since no account
+// balance/configured R is available here either).
+function buildGoalLine(trades) {
+  const TARGET_RR = 2.0, TARGET_DAY_WR = 0.70;
+  const lossTrades = trades.filter((t) => (t.pnl || 0) < 0);
+  const avgLossAbs = lossTrades.length
+    ? Math.abs(lossTrades.reduce((s, t) => s + (t.pnl || 0), 0) / lossTrades.length)
+    : 0;
+  const riskUnit = avgLossAbs > 0 ? avgLossAbs : 1;
+  const perDayTarget = TARGET_DAY_WR * (riskUnit * TARGET_RR) - (1 - TARGET_DAY_WR) * riskUnit;
+
+  const uniqueDays = [...new Set(trades.map((t) => t.closeDate))].sort();
+  const dayIdx = {}; uniqueDays.forEach((d, i) => { dayIdx[d] = i; });
+  const dayCounts = {}; trades.forEach((t) => { dayCounts[t.closeDate] = (dayCounts[t.closeDate] || 0) + 1; });
+  const dayRank = {};
+  const dayPos = trades.map((t) => {
+    const d = t.closeDate;
+    const rank = (dayRank[d] = dayRank[d] || 0);
+    dayRank[d]++;
+    const within = dayCounts[d] > 0 ? rank / dayCounts[d] : 0;
+    return (dayIdx[d] ?? 0) + within;
+  });
+  const dayPosEnd = dayPos.length ? Math.max(0.0001, dayPos[dayPos.length - 1]) : 0.0001;
+  const goalPoints = dayPos.map((p) => (p / dayPosEnd) * perDayTarget * uniqueDays.length);
+  const goalFinal = goalPoints.length ? goalPoints[goalPoints.length - 1] : 0;
+  return { goalPoints, goalFinal, perDayTarget, dayCount: uniqueDays.length };
+}
 
 function renderEquity(scoped) {
   // Free mode shows the whole synced account history regardless of the
@@ -1068,6 +1106,7 @@ function renderEquity(scoped) {
     $('#equity-caption').textContent = 'No history yet.';
     $('#eq-current').textContent = $('#eq-peak').textContent = $('#eq-dd').textContent = '—';
     $('#eq-best').textContent = $('#eq-worst').textContent = $('#eq-trades').textContent = '—';
+    $('#eq-goal-pace').textContent = $('#eq-goal-gap').textContent = '—';
     return;
   }
 
@@ -1079,6 +1118,14 @@ function renderEquity(scoped) {
   $('#eq-trades').textContent = view.tradeCount ?? curve.length;
   $('#eq-best').textContent = view.bestDay ? money(view.bestDay.pnl, true) : '—';
   $('#eq-worst').textContent = view.worstDay ? money(view.worstDay.pnl, true) : '—';
+
+  const goal = buildGoalLine(view.trades || []);
+  eqGoalRef = goal;
+  $('#eq-goal-pace').textContent = money(goal.goalFinal, true);
+  const gap = values[values.length - 1] - goal.goalFinal;
+  const gapEl = $('#eq-goal-gap');
+  gapEl.textContent = money(gap, true);
+  gapEl.className = 'eq-stat-v ' + posNeg(gap);
 
   if (eqMode === 'cumulative') drawEquityCumulative(curve, false, false);
   else if (eqMode === 'drawdown') drawEquityCumulative(buildDrawdownCurve(curve), false, true);
@@ -1132,7 +1179,10 @@ function drawEquityCumulative(curve, keepView, isDrawdown) {
   if (!slice.length) return;
 
   const values = slice.map((p) => p.cumulative);
-  const min = Math.min(0, ...values), max = Math.max(0, ...values);
+  const showGoal = !isDrawdown && eqGoalOn && eqGoalRef && eqGoalRef.goalPoints.length === curve.length;
+  const goalSlice = showGoal ? eqGoalRef.goalPoints.slice(startIdx, endIdx + 1) : null;
+  const domainVals = showGoal ? values.concat(goalSlice) : values;
+  const min = Math.min(0, ...domainVals), max = Math.max(0, ...domainVals);
   const span = (max - min) || 1;
   const yAt = (v) => padTop + (1 - (v - min) / span) * (H - padTop - padBottom);
   const xAt = (i) => ((startIdx + i - eqPanStart) / eqVisibleCount) * W;
@@ -1157,6 +1207,38 @@ function drawEquityCumulative(curve, keepView, isDrawdown) {
   line.setAttribute('d', linePath); line.setAttribute('fill', 'none');
   line.setAttribute('stroke', lineColor); line.setAttribute('stroke-width', '1.4');
   svg.appendChild(line);
+
+  if (showGoal) {
+    let goalPath = `M ${xAt(0)} ${yAt(goalSlice[0])}`;
+    for (let i = 1; i < goalSlice.length; i++) goalPath += ` L ${xAt(i)} ${yAt(goalSlice[i])}`;
+    const goalLine = document.createElementNS(ns, 'path');
+    goalLine.setAttribute('d', goalPath); goalLine.setAttribute('fill', 'none');
+    goalLine.setAttribute('stroke', '#ffd23c'); goalLine.setAttribute('stroke-width', '1.5');
+    goalLine.setAttribute('stroke-dasharray', '5 4'); goalLine.setAttribute('opacity', '0.85');
+    svg.appendChild(goalLine);
+
+    // End-of-line pill, same look as desktop's gold milestone label.
+    const lx = xAt(goalSlice.length - 1), ly = yAt(goalSlice[goalSlice.length - 1]);
+    const lbl = money(goalSlice[goalSlice.length - 1], true);
+    const tw = lbl.length * 5.8 + 14;
+    const bx = Math.max(2, Math.min(lx - tw - 6, W - tw - 2));
+    const by = Math.max(2, Math.min(ly - 10, H - 22));
+    const dot = document.createElementNS(ns, 'circle');
+    dot.setAttribute('cx', lx); dot.setAttribute('cy', ly); dot.setAttribute('r', '3');
+    dot.setAttribute('fill', '#ffd23c');
+    svg.appendChild(dot);
+    const pillRect = document.createElementNS(ns, 'rect');
+    pillRect.setAttribute('x', bx); pillRect.setAttribute('y', by);
+    pillRect.setAttribute('width', tw); pillRect.setAttribute('height', 19);
+    pillRect.setAttribute('rx', 9.5); pillRect.setAttribute('fill', '#ffd23c'); pillRect.setAttribute('opacity', '0.95');
+    svg.appendChild(pillRect);
+    const pillText = document.createElementNS(ns, 'text');
+    pillText.setAttribute('x', bx + tw / 2); pillText.setAttribute('y', by + 13);
+    pillText.setAttribute('text-anchor', 'middle'); pillText.setAttribute('font-size', '10');
+    pillText.setAttribute('font-weight', '600'); pillText.setAttribute('fill', '#1a1a1e');
+    pillText.textContent = lbl;
+    svg.appendChild(pillText);
+  }
 
   const zero = document.createElementNS(ns, 'line');
   zero.setAttribute('x1', 0); zero.setAttribute('x2', W); zero.setAttribute('y1', yAt(0)); zero.setAttribute('y2', yAt(0));
@@ -1891,13 +1973,19 @@ function init() {
   $('#tcm-close').addEventListener('click', closeTradeChart);
   initYearSlider();
 
-  document.querySelectorAll('.eq-toggle-btn').forEach((btn) => {
+  document.querySelectorAll('.eq-toggle-btn[data-mode]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.eq-toggle-btn').forEach((b) => b.classList.remove('active'));
+      document.querySelectorAll('.eq-toggle-btn[data-mode]').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
       eqMode = btn.dataset.mode;
       if (lastScoped) renderEquity(lastScoped);
     });
+  });
+
+  $('#goal-toggle-btn').addEventListener('click', () => {
+    eqGoalOn = !eqGoalOn;
+    $('#goal-toggle-btn').classList.toggle('active', eqGoalOn);
+    if (lastScoped) renderEquity(lastScoped);
   });
 
   document.querySelectorAll('.eq-scope-btn').forEach((btn) => {

@@ -270,7 +270,10 @@
   #cal-month-summary .hl { color: var(--text); font-weight: 700; }
   .cal-cell { aspect-ratio: 0.85; border-radius: 4px; border: 1px solid var(--border); padding: 4px; font-size: 9px; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
   .cal-day-pct { font-size: 7.5px; opacity: 0.75; }
-  .cal-day-spark { display: block; width: 100%; height: 10px; margin-top: 1px; }
+  .cal-day-spark { display: flex; align-items: flex-end; gap: 1px; height: 10px; margin-top: 1px; }
+  .cal-day-spark i { flex: 1; min-width: 1px; border-radius: 0.5px; }
+  .cal-day-spark i.pos { background: var(--green-bright); }
+  .cal-day-spark i.neg { background: var(--purple-bright); }
   .cal-cell.empty { border: none; }
   .cal-cell.pos { background: rgba(52,225,135,0.12); border-color: rgba(52,225,135,0.3); }
   .cal-cell.neg { background: rgba(168,85,247,0.12); border-color: rgba(168,85,247,0.3); }
@@ -932,6 +935,36 @@ function parseBars(str) {
   });
 }
 
+// ── Modal ↔ browser-history integration ──────────────────────────────
+// Without this, the phone's back button/edge-swipe closes the whole app
+// (or navigates away) while a modal is open, since there's no history
+// entry for the modal itself. Pushing one on open means back just pops
+// it — same UX as a native app's modal dismissal.
+const MODAL_ELS = { 'trade-chart': 'trade-chart-modal', 'day-detail': 'day-detail-modal' };
+let modalStack = [];
+
+function openModal(name) {
+  document.getElementById(MODAL_ELS[name]).classList.add('open');
+  modalStack.push(name);
+  history.pushState({ cheetahModal: name }, '', location.href);
+}
+// Called by the X button — triggers a real back navigation so popstate
+// below does the actual closing/stack-pop, keeping the two paths (X
+// button vs. system back) in sync rather than duplicating close logic.
+function closeModalByX(name) {
+  if (modalStack.length && modalStack[modalStack.length - 1] === name) {
+    history.back();
+  } else {
+    document.getElementById(MODAL_ELS[name]).classList.remove('open');
+  }
+}
+window.addEventListener('popstate', () => {
+  if (modalStack.length) {
+    const name = modalStack.pop();
+    document.getElementById(MODAL_ELS[name]).classList.remove('open');
+  }
+});
+
 function openDayDetail(dateStr) {
   if (!currentData) return;
   const dayTrades = (currentData.recentTrades || []).filter((t) => t.closeDate === dateStr);
@@ -969,15 +1002,15 @@ function openDayDetail(dateStr) {
     list.appendChild(row);
   });
 
-  $('#day-detail-modal').classList.add('open');
+  openModal('day-detail');
 }
-function closeDayDetail() { $('#day-detail-modal').classList.remove('open'); }
+function closeDayDetail() { closeModalByX('day-detail'); }
 
 function openTradeChart(t) {
   const side = (t.type || '').toUpperCase();
   const sideClass = side === 'BUY' ? 'buy' : 'sell';
   $('#tcm-title').innerHTML = `<span class="${sideClass}">${side}</span> · ${t.closeDate} ${t.openTime || ''} → ${t.closeTime} · Entry ${t.entry ?? '—'} → Exit ${t.exit ?? '—'} · <span class="${posNeg(t.pnl)}">${money(t.pnl, true)}</span>`;
-  $('#trade-chart-modal').classList.add('open');
+  openModal('trade-chart');
 
   const bars = t.candles ? [
     ...parseBars(t.candles.before),
@@ -997,7 +1030,7 @@ function openTradeChart(t) {
   $('#tcm-empty').style.display = 'none';
   drawCandles(bars, t);
 }
-function closeTradeChart() { $('#trade-chart-modal').classList.remove('open'); }
+function closeTradeChart() { closeModalByX('trade-chart'); }
 
 function drawCandles(bars, trade) {
   const svg = $('#tcm-svg');
@@ -2168,21 +2201,18 @@ function renderCalendar(data) {
       monthPnl += entry.pnl; monthTrades += entry.trades; monthActiveDays++;
       if (entry.pnl > 0) monthWinDays++;
       if (dayTrades.length > 1) {
-        // Running cumulative total across the day, ending exactly on the
-        // day's final P&L — not per-trade magnitude bars.
+        // Bars driven by the running cumulative total across the day
+        // (each bar = cumulative P&L after that trade), ending exactly
+        // on the day's final P&L — not each trade's own magnitude.
         let running = 0;
         const runningVals = dayTrades.map((t) => (running += (t.pnl || 0)));
-        const allVals = [0, ...runningVals];
-        const lo = Math.min(...allVals), hi = Math.max(...allVals);
-        const span = (hi - lo) || 1;
-        const W = 100, H = 10;
-        const xAt = (i) => (i / (allVals.length - 1)) * W;
-        const yAt = (v) => H - ((v - lo) / span) * H;
-        let d = `M ${xAt(0)} ${yAt(0)}`;
-        allVals.forEach((v, i) => { if (i > 0) d += ` L ${xAt(i)} ${yAt(v)}`; });
-        const strokeColor = entry.pnl >= 0 ? '#34e187' : '#a855f7';
-        inner += `<svg class="cal-day-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">` +
-          `<path d="${d}" fill="none" stroke="${strokeColor}" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>`;
+        const allForRange = [0, ...runningVals];
+        const maxAbs = Math.max(1, ...allForRange.map((v) => Math.abs(v)));
+        const bars = runningVals.map((v) => {
+          const h = Math.max(15, (Math.abs(v) / maxAbs) * 100);
+          return `<i class="${v >= 0 ? 'pos' : 'neg'}" style="height:${h}%"></i>`;
+        }).join('');
+        inner += `<span class="cal-day-spark">${bars}</span>`;
       }
     }
     cell.innerHTML = inner;

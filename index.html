@@ -243,6 +243,10 @@
   #tcm-legend span { display: flex; align-items: center; gap: 4px; }
   .tcm-hint { margin-left: auto; }
   #tcm-scroll { flex: 1; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; }
+  #tcm-chart-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
+  #tcm-yaxis { position: absolute; inset: 0; right: 0; width: 100%; pointer-events: none; }
+  .tcm-gridline { position: absolute; left: 0; right: 44px; height: 1px; background: rgba(255,255,255,0.06); }
+  .tcm-gridline-label { position: absolute; right: 2px; transform: translateY(-50%); font-size: 10px; color: var(--text-dim); font-variant-numeric: tabular-nums; background: var(--bg); padding: 1px 3px; }
   #tcm-empty { display: none; padding: 40px 24px; text-align: center; color: var(--text-dim); font-size: 13px; line-height: 1.6; }
   #tcm-svg { height: 100%; display: block; }
   .jr-row.tappable { cursor: pointer; }
@@ -438,8 +442,11 @@
         <span><i class="lg-dot" style="background:#26c96a"></i>Exit</span>
         <span class="tcm-hint">drag to scroll · pinch not supported, use two-finger scroll</span>
       </div>
-      <div class="eq-scroll" id="tcm-scroll">
-        <svg id="tcm-svg" class="chart-svg" viewBox="0 0 400 300"></svg>
+      <div id="tcm-chart-wrap">
+        <div class="eq-scroll" id="tcm-scroll">
+          <svg id="tcm-svg" class="chart-svg" viewBox="0 0 400 300"></svg>
+        </div>
+        <div id="tcm-yaxis"></div>
       </div>
       <div id="tcm-empty"></div>
     </div>
@@ -690,6 +697,43 @@ function drawCandles(bars, trade) {
       dot.setAttribute('fill', '#26c96a');
       svg.appendChild(dot);
     }
+  }
+
+  // ── X-axis: time labels at first bar, entry, exit, last bar — these
+  // live inside the SVG so they scroll along with the candles they label.
+  const xLabelIdxs = new Set([0, bars.length - 1]);
+  if (entryIdx >= 0) xLabelIdxs.add(entryIdx);
+  if (exitIdx >= 0) xLabelIdxs.add(exitIdx);
+  xLabelIdxs.forEach((i) => {
+    const b = bars[i];
+    if (!b) return;
+    const text = document.createElementNS(ns, 'text');
+    text.setAttribute('x', i * barW + barW / 2);
+    text.setAttribute('y', H - 4);
+    text.setAttribute('font-size', '9');
+    text.setAttribute('fill', '#8a8a92');
+    text.setAttribute('text-anchor', i === 0 ? 'start' : i === bars.length - 1 ? 'end' : 'middle');
+    text.textContent = b.time || '';
+    svg.appendChild(text);
+  });
+
+  // ── Y-axis: fixed (non-scrolling) price gridlines + labels, drawn
+  // outside the scrollable SVG so they stay put while candles scroll.
+  const yaxis = $('#tcm-yaxis');
+  yaxis.innerHTML = '';
+  const LEVELS = 5;
+  for (let i = 0; i <= LEVELS; i++) {
+    const v = max - (i / LEVELS) * (max - min);
+    const yPct = (yAt(v) / H) * 100;
+    const line = document.createElement('div');
+    line.className = 'tcm-gridline';
+    line.style.top = yPct + '%';
+    yaxis.appendChild(line);
+    const label = document.createElement('div');
+    label.className = 'tcm-gridline-label';
+    label.style.top = yPct + '%';
+    label.textContent = v.toFixed(2);
+    yaxis.appendChild(label);
   }
 
   const scroller = $('#tcm-scroll');

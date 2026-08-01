@@ -104,8 +104,34 @@
 
   /* Chart / Equity */
   .chart-wrap { padding: 16px; }
-  .chart-svg { width: 100%; height: 220px; background: var(--panel-alt); border: 1px solid var(--border); border-radius: 6px; }
+  .chart-svg { width: 100%; height: 220px; background: var(--panel-alt); border: 1px solid var(--border); border-radius: 6px; touch-action: pan-y; }
   .chart-caption { font-size: 10.5px; color: var(--text-dim); margin-top: 8px; text-align: center; }
+  .chart-legend { display: flex; gap: 14px; justify-content: center; margin-top: 10px; font-size: 10px; color: var(--text-dim); }
+  .chart-legend span { display: flex; align-items: center; gap: 5px; }
+  .lg-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .lg-dot.pos { background: var(--green-bright); }
+  .lg-dot.neg { background: var(--purple-bright); }
+  .lg-dot.mfe { background: #34e187; box-shadow: 0 0 0 1px #0a2116; }
+  .lg-dot.mae { background: #ff8a8e; box-shadow: 0 0 0 1px #2a0f10; }
+
+  .eq-toggle { display: flex; gap: 8px; margin-bottom: 12px; }
+  .eq-toggle-btn {
+    flex: 1; background: var(--panel-alt); border: 1px solid var(--border); color: var(--text-dim);
+    padding: 8px; border-radius: 4px; font-size: 11.5px; font-weight: 700; cursor: pointer; font-family: inherit;
+  }
+  .eq-toggle-btn.active { color: var(--green-bright); border-color: var(--green); background: #16281f; }
+  .eq-stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+  .eq-stat { background: var(--panel-alt); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
+  .eq-stat-v { font-size: 13px; font-weight: 700; margin-top: 3px; font-variant-numeric: tabular-nums; }
+  .eq-stat-v.pos { color: var(--green-bright); }
+  .eq-stat-v.neg { color: var(--purple-bright); }
+  #eq-tooltip {
+    position: absolute; pointer-events: none; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 4px; padding: 5px 8px;
+    font-size: 10.5px; color: var(--text); display: none; white-space: nowrap;
+    transform: translate(-50%, -110%);
+  }
+  .eq-svg-wrap { position: relative; }
 
   /* Report */
   .report-section { padding: 14px 16px; border-bottom: 1px solid var(--border); }
@@ -216,14 +242,34 @@
       <div class="tab-pane" id="pane-chart">
         <div class="chart-wrap">
           <svg id="chart-svg" class="chart-svg" viewBox="0 0 400 220"></svg>
-          <div class="chart-caption">P&amp;L per trade, most recent on the right</div>
+          <div class="chart-legend">
+            <span><i class="lg-dot pos"></i>Win</span>
+            <span><i class="lg-dot neg"></i>Loss</span>
+            <span><i class="lg-dot mfe"></i>MFE</span>
+            <span><i class="lg-dot mae"></i>MAE</span>
+          </div>
+          <div class="chart-caption">P&amp;L per trade with excursion wick, most recent on the right</div>
         </div>
       </div>
 
       <div class="tab-pane" id="pane-equity">
         <div class="chart-wrap">
-          <svg id="equity-svg" class="chart-svg" viewBox="0 0 400 220"></svg>
-          <div class="chart-caption" id="equity-caption"></div>
+          <div class="eq-toggle">
+            <button class="eq-toggle-btn active" data-mode="cumulative">Cumulative</button>
+            <button class="eq-toggle-btn" data-mode="daily">Daily</button>
+          </div>
+          <div class="eq-stat-grid">
+            <div class="eq-stat"><div class="stat-label">Current</div><div class="eq-stat-v" id="eq-current">—</div></div>
+            <div class="eq-stat"><div class="stat-label">Peak</div><div class="eq-stat-v" id="eq-peak">—</div></div>
+            <div class="eq-stat"><div class="stat-label">Max DD</div><div class="eq-stat-v neg" id="eq-dd">—</div></div>
+            <div class="eq-stat"><div class="stat-label">Best Day</div><div class="eq-stat-v pos" id="eq-best">—</div></div>
+            <div class="eq-stat"><div class="stat-label">Worst Day</div><div class="eq-stat-v neg" id="eq-worst">—</div></div>
+          </div>
+          <div class="eq-svg-wrap">
+            <svg id="equity-svg" class="chart-svg" viewBox="0 0 400 220"></svg>
+            <div id="eq-tooltip"></div>
+          </div>
+          <div class="chart-caption" id="equity-caption">Tap the chart to inspect a point</div>
         </div>
       </div>
 
@@ -436,14 +482,21 @@ function renderTrades(data) {
   }
 }
 
-// ── Render: Chart tab (per-trade bar chart) ────────────────────────
+// ── Render: Chart tab (per-trade bar chart + MAE/MFE wick) ─────────
 function renderChart(data) {
   const svg = $('#chart-svg');
   const trades = (data.recentTrades || []).slice(-60);
   svg.innerHTML = '';
   if (!trades.length) return;
   const W = 400, H = 220, midY = H / 2;
-  const maxAbs = Math.max(1, ...trades.map((t) => Math.abs(t.pnl || 0)));
+  // Scale against whichever is larger: the pnl bars or the excursion wicks,
+  // so a big MFE/MAE swing doesn't get clipped off the top/bottom.
+  const maxAbs = Math.max(1, ...trades.map((t) => {
+    const vals = [Math.abs(t.pnl || 0)];
+    if (t.mfe != null) vals.push(Math.abs(t.mfe));
+    if (t.mae != null) vals.push(Math.abs(t.mae));
+    return Math.max(...vals);
+  }));
   const barW = Math.max(1.5, (W / trades.length) - 2);
   let x = 4;
   const ns = 'http://www.w3.org/2000/svg';
@@ -451,8 +504,29 @@ function renderChart(data) {
   zero.setAttribute('x1', 0); zero.setAttribute('x2', W); zero.setAttribute('y1', midY); zero.setAttribute('y2', midY);
   zero.setAttribute('stroke', '#2a2a2e'); zero.setAttribute('stroke-width', '1');
   svg.appendChild(zero);
+  const yFor = (v) => midY - (v / maxAbs) * (H / 2 - 10);
   for (const t of trades) {
     const pnl = t.pnl || 0;
+    const cx = x + barW / 2;
+    // Low-confidence excursion (feed had no real MFE/MAE) collapses to the
+    // trade's own pnl on both sides — skip drawing a wick for those so it
+    // doesn't look like fabricated data.
+    const hasExcursion = t.mfe != null && t.mae != null && !(t.mfe === Math.max(0, pnl) && t.mae === Math.min(0, pnl));
+    if (hasExcursion) {
+      const wick = document.createElementNS(ns, 'line');
+      wick.setAttribute('x1', cx); wick.setAttribute('x2', cx);
+      wick.setAttribute('y1', yFor(t.mfe)); wick.setAttribute('y2', yFor(t.mae));
+      wick.setAttribute('stroke', '#55555c'); wick.setAttribute('stroke-width', '1');
+      svg.appendChild(wick);
+      const mfeDot = document.createElementNS(ns, 'circle');
+      mfeDot.setAttribute('cx', cx); mfeDot.setAttribute('cy', yFor(t.mfe)); mfeDot.setAttribute('r', '1.6');
+      mfeDot.setAttribute('fill', '#34e187');
+      svg.appendChild(mfeDot);
+      const maeDot = document.createElementNS(ns, 'circle');
+      maeDot.setAttribute('cx', cx); maeDot.setAttribute('cy', yFor(t.mae)); maeDot.setAttribute('r', '1.6');
+      maeDot.setAttribute('fill', '#ff8a8e');
+      svg.appendChild(maeDot);
+    }
     const h = Math.abs(pnl) / maxAbs * (H / 2 - 10);
     const rect = document.createElementNS(ns, 'rect');
     rect.setAttribute('x', x); rect.setAttribute('width', barW);
@@ -464,12 +538,37 @@ function renderChart(data) {
   }
 }
 
-// ── Render: Equity tab (cumulative area chart) ─────────────────────
+// ── Render: Equity tab (cumulative area / daily bars + inspect) ────
+let eqMode = 'cumulative';
+
 function renderEquity(data) {
-  const svg = $('#equity-svg');
+  const daily = data.dailyPnl || [];
   const curve = data.equityCurve || [];
+  $('#eq-tooltip').style.display = 'none';
+
+  if (!curve.length) {
+    $('#equity-svg').innerHTML = '';
+    $('#equity-caption').textContent = 'No history yet.';
+    $('#eq-current').textContent = $('#eq-peak').textContent = $('#eq-dd').textContent = '—';
+    $('#eq-best').textContent = $('#eq-worst').textContent = '—';
+    return;
+  }
+
+  const values = curve.map((p) => p.cumulative);
+  const peak = Math.max(0, ...values);
+  $('#eq-current').textContent = money(values[values.length - 1], true);
+  $('#eq-peak').textContent = money(peak, true);
+  $('#eq-dd').textContent = money(data.maxDrawdown);
+  $('#eq-best').textContent = data.bestDay ? money(data.bestDay.pnl, true) : '—';
+  $('#eq-worst').textContent = data.worstDay ? money(data.worstDay.pnl, true) : '—';
+
+  if (eqMode === 'cumulative') drawEquityCumulative(curve);
+  else drawEquityDaily(daily);
+}
+
+function drawEquityCumulative(curve) {
+  const svg = $('#equity-svg');
   svg.innerHTML = '';
-  if (!curve.length) { $('#equity-caption').textContent = 'No history yet.'; return; }
   const W = 400, H = 220, padTop = 12, padBottom = 12;
   const values = curve.map((p) => p.cumulative);
   const min = Math.min(0, ...values), max = Math.max(0, ...values);
@@ -487,15 +586,12 @@ function renderEquity(data) {
   areaPath += ` L ${xAt(curve.length - 1)} ${yAt(0)} Z`;
 
   const area = document.createElementNS(ns, 'path');
-  area.setAttribute('d', areaPath);
-  area.setAttribute('fill', 'rgba(52,225,135,0.14)');
+  area.setAttribute('d', areaPath); area.setAttribute('fill', 'rgba(52,225,135,0.14)');
   svg.appendChild(area);
 
   const line = document.createElementNS(ns, 'path');
-  line.setAttribute('d', linePath);
-  line.setAttribute('fill', 'none');
-  line.setAttribute('stroke', '#34e187');
-  line.setAttribute('stroke-width', '1.6');
+  line.setAttribute('d', linePath); line.setAttribute('fill', 'none');
+  line.setAttribute('stroke', '#34e187'); line.setAttribute('stroke-width', '1.6');
   svg.appendChild(line);
 
   const zero = document.createElementNS(ns, 'line');
@@ -504,6 +600,62 @@ function renderEquity(data) {
   svg.appendChild(zero);
 
   $('#equity-caption').textContent = `${curve[0].date} → ${curve[curve.length - 1].date} · ${money(values[values.length - 1], true)}`;
+
+  attachEquityInspect(svg, curve.map((p, i) => ({ x: xAt(i), y: yAt(p.cumulative), date: p.date, value: p.cumulative })));
+}
+
+function drawEquityDaily(daily) {
+  const svg = $('#equity-svg');
+  svg.innerHTML = '';
+  if (!daily.length) return;
+  const W = 400, H = 220, midY = H / 2;
+  const maxAbs = Math.max(1, ...daily.map((d) => Math.abs(d.pnl)));
+  const barW = Math.max(2, (W / daily.length) - 2);
+  const ns = 'http://www.w3.org/2000/svg';
+  const zero = document.createElementNS(ns, 'line');
+  zero.setAttribute('x1', 0); zero.setAttribute('x2', W); zero.setAttribute('y1', midY); zero.setAttribute('y2', midY);
+  zero.setAttribute('stroke', '#2a2a2e'); zero.setAttribute('stroke-width', '1');
+  svg.appendChild(zero);
+  let x = 4;
+  const points = [];
+  for (const d of daily) {
+    const h = Math.abs(d.pnl) / maxAbs * (H / 2 - 10);
+    const rect = document.createElementNS(ns, 'rect');
+    rect.setAttribute('x', x); rect.setAttribute('width', barW);
+    rect.setAttribute('y', d.pnl >= 0 ? midY - h : midY);
+    rect.setAttribute('height', Math.max(1, h));
+    rect.setAttribute('fill', d.pnl >= 0 ? '#34e187' : '#a855f7');
+    svg.appendChild(rect);
+    points.push({ x: x + barW / 2, y: d.pnl >= 0 ? midY - h : midY + h, date: d.date, value: d.pnl });
+    x += barW + 2;
+  }
+  $('#equity-caption').textContent = `${daily[0].date} → ${daily[daily.length - 1].date} · daily P&L`;
+  attachEquityInspect(svg, points);
+}
+
+// Tap/click nearest point and show a small tooltip above it — the
+// mobile equivalent of hovering the desktop equity chart.
+function attachEquityInspect(svg, points) {
+  const tooltip = $('#eq-tooltip');
+  const handler = (evt) => {
+    const rect = svg.getBoundingClientRect();
+    const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+    const svgX = ((clientX - rect.left) / rect.width) * 400;
+    let nearest = points[0], bestDist = Infinity;
+    for (const p of points) {
+      const d = Math.abs(p.x - svgX);
+      if (d < bestDist) { bestDist = d; nearest = p; }
+    }
+    const px = (nearest.x / 400) * rect.width;
+    const py = (nearest.y / 220) * rect.height;
+    tooltip.style.left = px + 'px';
+    tooltip.style.top = py + 'px';
+    tooltip.style.display = 'block';
+    tooltip.innerHTML = `<b>${nearest.date}</b> · <span style="color:${nearest.value >= 0 ? '#34e187' : '#a855f7'}">${money(nearest.value, true)}</span>`;
+  };
+  svg.onclick = handler;
+  svg.ontouchstart = handler;
+  svg.ontouchmove = handler;
 }
 
 // ── Render: Report tab ──────────────────────────────────────────────
@@ -600,6 +752,15 @@ function init() {
 
   document.querySelectorAll('.tab-btn').forEach((btn) => {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+  });
+
+  document.querySelectorAll('.eq-toggle-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.eq-toggle-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      eqMode = btn.dataset.mode;
+      if (currentData) renderEquity(currentData);
+    });
   });
 
   $('#cal-prev').addEventListener('click', () => {

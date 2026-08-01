@@ -132,7 +132,12 @@
   .tab-pane.active { display: block; }
 
   /* Trades (journal) */
-  #trades-summary-line { font-size: 10.5px; color: var(--text-dim); padding: 12px 16px 0; }
+  #trades-summary-line { display: flex; align-items: center; justify-content: space-between; font-size: 10.5px; color: var(--text-dim); padding: 12px 16px 0; }
+  #export-btn {
+    background: none; border: 1px solid var(--border); color: var(--text-dim);
+    border-radius: 4px; padding: 3px 9px; font-size: 10px; font-weight: 600; cursor: pointer; font-family: inherit;
+  }
+  #export-btn:active { color: var(--gold); border-color: var(--gold); }
   #ptr-indicator {
     text-align: center; font-size: 11px; color: var(--text-dim); height: 0; overflow: hidden;
     display: flex; align-items: center; justify-content: center; transition: height 0.15s ease;
@@ -333,6 +338,18 @@
   .tab-btn.active { color: var(--green-bright); }
 
   /* ── Settings sheet ────────────────────────────────────────────── */
+  #tips-overlay {
+    position: fixed; inset: 0; z-index: 70; display: none;
+    align-items: center; justify-content: center; background: rgba(0,0,0,0.7); padding: 24px;
+  }
+  #tips-overlay.open { display: flex; }
+  #tips-card { background: var(--panel); border: 1px solid var(--gold); border-radius: 10px; padding: 20px; max-width: 340px; }
+  #tips-card h2 { font-size: 14px; color: var(--gold); margin: 0 0 14px; }
+  #tips-card ul { margin: 0 0 18px; padding-left: 18px; }
+  #tips-card li { font-size: 12.5px; color: #c3c6d1; line-height: 1.7; margin-bottom: 6px; }
+  #tips-card li b { color: var(--text); }
+  #tips-dismiss { width: 100%; background: #2a2308; color: var(--gold); border: 1px solid var(--gold); border-radius: 6px; padding: 11px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; }
+
   #settings-sheet { position: fixed; inset: 0; z-index: 50; display: none; align-items: flex-end; justify-content: center; background: rgba(0,0,0,0.6); }
   #settings-sheet.open { display: flex; }
   #settings-panel { width: 100%; max-width: 480px; background: var(--panel); border-top: 1px solid var(--border); padding: 20px 18px calc(20px + env(safe-area-inset-bottom,0)); }
@@ -492,7 +509,10 @@
     <div id="tab-content">
       <div class="tab-pane active" id="pane-trades">
         <div id="ptr-indicator">↓ Pull to refresh</div>
-        <div id="trades-summary-line"></div>
+        <div id="trades-summary-line">
+          <span id="trades-summary-text"></span>
+          <button id="export-btn" title="Export visible trades as CSV">Export…</button>
+        </div>
         <div id="setup-filter-row"></div>
         <div class="jr-table-head"><span>Time</span><span>Event</span></div>
         <div id="trade-list"></div>
@@ -716,6 +736,20 @@
     </div>
   </div>
 
+  <div id="tips-overlay">
+    <div id="tips-card">
+      <h2>A few gestures worth knowing</h2>
+      <ul>
+        <li><b>Equity chart</b> — drag to pan, pinch to zoom, double-tap to reset</li>
+        <li><b>Trade chart</b> — swipe the title bar for the next/previous trade</li>
+        <li><b>Calendar</b> — swipe left/right for next/previous month, tap a day for details</li>
+        <li><b>Range slider</b> — drag either gold handle, or the mini strip below the equity chart</li>
+        <li><b>Trades tab</b> — pull down to refresh</li>
+      </ul>
+      <button id="tips-dismiss">Got it</button>
+    </div>
+  </div>
+
   <div id="settings-sheet">
     <div id="settings-panel">
       <h2>Connect Snapshot</h2>
@@ -931,6 +965,36 @@ function renderSparklines(data) {
 
 // ── Render: Trades tab (journal, grouped by day) ───────────────────
 let setupFilter = null; // null = show all setups
+let exportableTrades = [];
+
+// CSV export of whatever's currently visible in the Trades tab (respects
+// the active range + setup filter) — same idea as desktop's Calendar
+// "Export..." link, just applied to the trade list here.
+function exportTradesCsv() {
+  if (!exportableTrades.length) return;
+  haptic();
+  const headers = ['Date', 'Open', 'Close', 'Type', 'Lots', 'Entry', 'Exit', 'P&L', 'Setup'];
+  const rows = exportableTrades.map((t) => [
+    t.closeDate || '', t.openTime || '', t.closeTime || '', t.type || '',
+    t.lots ?? '', t.entry ?? '', t.exit ?? '', t.pnl ?? '', t.setup || '',
+  ]);
+  const csv = [headers, ...rows]
+    .map((r) => r.map((v) => (typeof v === 'string' && v.includes(',')) ? `"${v}"` : v).join(','))
+    .join('\n');
+  const filename = `cheetah-trades-${new Date().toISOString().slice(0, 10)}.csv`;
+  const file = new File([csv], filename, { type: 'text/csv' });
+
+  if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+    navigator.share({ files: [file], title: filename }).catch(() => {});
+  } else {
+    // Fallback: trigger a normal download.
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }
+}
 
 function renderSetupFilterRow(scopedTrades) {
   const el = $('#setup-filter-row');
@@ -957,11 +1021,12 @@ function renderTrades(scopedTrades, dayCount) {
   lastScopedTradesRef = scopedTrades; lastScopedDayCountRef = dayCount;
   renderSetupFilterRow(scopedTrades);
   const filteredScope = setupFilter ? scopedTrades.filter((t) => t.setup === setupFilter) : scopedTrades;
+  exportableTrades = filteredScope;
 
   const list = $('#trade-list');
   list.innerHTML = '';
   const total = filteredScope.length;
-  $('#trades-summary-line').textContent = dayCount != null
+  $('#trades-summary-text').textContent = dayCount != null
     ? `${total} trade${total === 1 ? '' : 's'} · ${dayCount} day${dayCount === 1 ? '' : 's'}${setupFilter ? ` · setup ${setupFilter}` : ''}`
     : `${total} trade${total === 1 ? '' : 's'}`;
   const trades = filteredScope.slice().reverse().slice(0, 100);
@@ -2849,6 +2914,17 @@ function init() {
   // Pull-to-refresh on the Trades tab — only triggers when already
   // scrolled to the top (of #tab-content, the actual scroll container)
   // and the Trades tab is the one currently showing.
+  $('#export-btn').addEventListener('click', exportTradesCsv);
+
+  const TIPS_SEEN_KEY = 'cheetah_tips_seen';
+  if (!localStorage.getItem(TIPS_SEEN_KEY)) {
+    $('#tips-overlay').classList.add('open');
+  }
+  $('#tips-dismiss').addEventListener('click', () => {
+    localStorage.setItem(TIPS_SEEN_KEY, '1');
+    $('#tips-overlay').classList.remove('open');
+  });
+
   (function attachPullToRefresh() {
     const scrollEl = $('#tab-content');
     const indicator = $('#ptr-indicator');

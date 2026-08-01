@@ -131,6 +131,21 @@
 
   /* Trades (journal) */
   #trades-summary-line { font-size: 10.5px; color: var(--text-dim); padding: 12px 16px 0; }
+  #ptr-indicator {
+    text-align: center; font-size: 11px; color: var(--text-dim); height: 0; overflow: hidden;
+    display: flex; align-items: center; justify-content: center; transition: height 0.15s ease;
+  }
+  #ptr-indicator.armed { color: var(--gold); }
+  #ptr-indicator.spinning { animation: ptrPulse 0.8s ease-in-out infinite; }
+  @keyframes ptrPulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+  #setup-filter-row { display: flex; gap: 6px; padding: 10px 16px 0; overflow-x: auto; }
+  .setup-filter-chip {
+    flex-shrink: 0; display: flex; align-items: center; gap: 5px; background: var(--panel-alt);
+    border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px 4px 8px;
+    font-size: 10.5px; font-weight: 700; color: var(--text-dim); cursor: pointer; font-family: inherit;
+  }
+  .setup-filter-chip i { width: 8px; height: 8px; border-radius: 2px; }
+  .setup-filter-chip.active { color: var(--text); border-color: var(--text-dim); background: #232328; }
   .jr-table-head { display: grid; grid-template-columns: 74px 1fr; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); padding: 12px 16px 6px; }
   .jr-day-header { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 16px 6px; margin-top: 4px; font-size: 12px; font-weight: 700; color: var(--text); border-bottom: 1px solid var(--border); }
   .jr-day-count { font-size: 10.5px; font-weight: 600; color: var(--text-dim); }
@@ -214,6 +229,12 @@
   .eq-stat-v.pos { color: var(--green-bright); }
   .eq-stat-v.neg { color: var(--purple-bright); }
   .eq-stat-v.goal { color: var(--gold); }
+  /* Generic win-rate/quality grading — same 4-tier palette as the Goal
+     Scorecard bars, applied consistently anywhere a win rate is shown. */
+  .wr-a { color: var(--green-bright); }
+  .wr-b { color: var(--gold); }
+  .wr-c { color: #f5a623; }
+  .wr-d { color: var(--purple-bright); }
   #eq-tooltip {
     position: absolute; pointer-events: none; background: var(--panel);
     border: 1px solid var(--border); border-radius: 4px; padding: 5px 8px;
@@ -459,7 +480,9 @@
 
     <div id="tab-content">
       <div class="tab-pane active" id="pane-trades">
+        <div id="ptr-indicator">↓ Pull to refresh</div>
         <div id="trades-summary-line"></div>
+        <div id="setup-filter-row"></div>
         <div class="jr-table-head"><span>Time</span><span>Event</span></div>
         <div id="trade-list"></div>
       </div>
@@ -801,7 +824,7 @@ function renderSummary(scoped, data) {
   const netEl = $('#stat-net');
   netEl.textContent = money(scoped.netPnl, true);
   netEl.className = posNeg(scoped.netPnl);
-  $('#stat-net-sub').innerHTML = `<span class="w">${scoped.winCount}W</span> / <span class="l">${scoped.lossCount}L</span> (${scoped.winRate != null ? scoped.winRate + '%' : '—'})`;
+  $('#stat-net-sub').innerHTML = `<span class="w">${scoped.winCount}W</span> / <span class="l">${scoped.lossCount}L</span> (<span class="${winRateClass(scoped.winRate, GOAL_TARGETS.tradeWinRate)}">${scoped.winRate != null ? scoped.winRate + '%' : '—'}</span>)`;
 
   $('#stat-count').textContent = scoped.tradeCount ?? '—';
   const realDd = computeRealDrawdownPct(data, scoped);
@@ -876,16 +899,43 @@ function renderSparklines(data) {
 }
 
 // ── Render: Trades tab (journal, grouped by day) ───────────────────
+let setupFilter = null; // null = show all setups
+
+function renderSetupFilterRow(scopedTrades) {
+  const el = $('#setup-filter-row');
+  const setups = [...new Set(scopedTrades.map((t) => t.setup).filter(Boolean))].sort();
+  if (setups.length < 2) { el.innerHTML = ''; return; }
+  if (setupFilter && !setups.includes(setupFilter)) setupFilter = null;
+  const allChip = `<button class="setup-filter-chip${!setupFilter ? ' active' : ''}" data-setup="">All</button>`;
+  const chips = setups.map((s) => {
+    const colorKey = setupColorKey(s);
+    const colorVar = { blue: '#6ea8f7', amber: '#f5a623', green: 'var(--green-bright)', purple: 'var(--purple-bright)' }[colorKey];
+    return `<button class="setup-filter-chip${setupFilter === s ? ' active' : ''}" data-setup="${s}"><i style="background:${colorVar}"></i>${s}</button>`;
+  }).join('');
+  el.innerHTML = allChip + chips;
+  el.querySelectorAll('.setup-filter-chip').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setupFilter = btn.dataset.setup || null;
+      renderTrades(lastScopedTradesRef, lastScopedDayCountRef);
+    });
+  });
+}
+let lastScopedTradesRef = [], lastScopedDayCountRef = null;
+
 function renderTrades(scopedTrades, dayCount) {
+  lastScopedTradesRef = scopedTrades; lastScopedDayCountRef = dayCount;
+  renderSetupFilterRow(scopedTrades);
+  const filteredScope = setupFilter ? scopedTrades.filter((t) => t.setup === setupFilter) : scopedTrades;
+
   const list = $('#trade-list');
   list.innerHTML = '';
-  const total = scopedTrades.length;
+  const total = filteredScope.length;
   $('#trades-summary-line').textContent = dayCount != null
-    ? `${total} trade${total === 1 ? '' : 's'} · ${dayCount} day${dayCount === 1 ? '' : 's'}`
+    ? `${total} trade${total === 1 ? '' : 's'} · ${dayCount} day${dayCount === 1 ? '' : 's'}${setupFilter ? ` · setup ${setupFilter}` : ''}`
     : `${total} trade${total === 1 ? '' : 's'}`;
-  const trades = scopedTrades.slice().reverse().slice(0, 100);
+  const trades = filteredScope.slice().reverse().slice(0, 100);
   lastRenderedTrades = trades;
-  if (trades.length === 0) { list.innerHTML = '<div class="jr-empty">No trades in this snapshot yet.</div>'; return; }
+  if (trades.length === 0) { list.innerHTML = '<div class="jr-empty">No trades match this filter.</div>'; return; }
   let lastDay = null;
   trades.forEach((t, idx) => {
     const day = t.closeDate || 'Unknown date';
@@ -2015,6 +2065,15 @@ function gradeFor(pct) {
   return 'd';
 }
 
+// Grades any win-rate-style percentage against a target using the same
+// 4-tier palette as the Goal Scorecard bars — used everywhere a win rate
+// shows up (Report, Setups, Day of Week, Time of Day, Calendar), so the
+// coloring is consistent across the whole app, not just P&L figures.
+function winRateClass(pct, target) {
+  if (pct == null || !target) return '';
+  return 'wr-' + gradeFor((pct / target) * 100);
+}
+
 function renderReport(data) {
   const o = data.overall || {};
   $('#rp-net').textContent = money(o.netProfit, true); $('#rp-net').className = 'v ' + posNeg(o.netProfit);
@@ -2024,6 +2083,7 @@ function renderReport(data) {
   $('#rp-wlr').textContent = o.winLossRatio != null ? o.winLossRatio + 'R' : '—';
   $('#rp-wlr').className = 'v ' + (o.winLossRatio == null ? '' : o.winLossRatio >= GOAL_TARGETS.winLossRatio ? 'pos' : 'neg');
   $('#rp-wr').textContent = o.winRate != null ? o.winRate + '%' : '—';
+  $('#rp-wr').className = 'v ' + winRateClass(o.winRate, GOAL_TARGETS.tradeWinRate);
   $('#rp-avgwin').textContent = money(o.avgWin, true); $('#rp-avgwin').className = 'v pos';
   $('#rp-avgloss').textContent = money(o.avgLoss, true); $('#rp-avgloss').className = 'v neg';
 
@@ -2065,9 +2125,11 @@ function renderReport(data) {
   const l = data.long || {}, s = data.short || {};
   $('#rp-long-net').textContent = money(l.netProfit, true); $('#rp-long-net').className = 'v ' + posNeg(l.netProfit);
   $('#rp-long-wr').textContent = l.winRate != null ? l.winRate + '%' : '—';
+  $('#rp-long-wr').className = 'v ' + winRateClass(l.winRate, GOAL_TARGETS.tradeWinRate);
   $('#rp-long-n').textContent = l.trades ?? '—';
   $('#rp-short-net').textContent = money(s.netProfit, true); $('#rp-short-net').className = 'v ' + posNeg(s.netProfit);
   $('#rp-short-wr').textContent = s.winRate != null ? s.winRate + '%' : '—';
+  $('#rp-short-wr').className = 'v ' + winRateClass(s.winRate, GOAL_TARGETS.tradeWinRate);
   $('#rp-short-n').textContent = s.trades ?? '—';
 
   renderSetupsBreakdown(data.trades || []);
@@ -2107,7 +2169,7 @@ function renderTimeOfDayBreakdown(trades) {
     row.className = 'setup-row';
     row.innerHTML = `
       <span class="setup-row-n" style="width:44px">${b.label}</span>
-      <span class="setup-row-n">${b.trades} trd · ${winRate}%</span>
+      <span class="setup-row-n">${b.trades} trd · <span class="${winRateClass(winRate, GOAL_TARGETS.tradeWinRate)}">${winRate}%</span></span>
       <span class="setup-row-bar"><span class="setup-row-bar-fill" style="width:${(Math.abs(b.net) / maxAbs) * 100}%; background:${b.net >= 0 ? '#34e187' : '#a855f7'}"></span></span>
       <span class="setup-row-net ${posNeg(b.net)}">${money(b.net, true)}</span>
     `;
@@ -2138,7 +2200,7 @@ function renderDayOfWeekBreakdown(trades) {
     row.className = 'setup-row';
     row.innerHTML = `
       <span class="setup-row-n" style="width:34px">${d.name}</span>
-      <span class="setup-row-n">${d.trades} trd · ${winRate}%</span>
+      <span class="setup-row-n">${d.trades} trd · <span class="${winRateClass(winRate, GOAL_TARGETS.tradeWinRate)}">${winRate}%</span></span>
       <span class="setup-row-bar"><span class="setup-row-bar-fill" style="width:${(Math.abs(d.net) / maxAbs) * 100}%; background:${d.net >= 0 ? '#34e187' : '#a855f7'}"></span></span>
       <span class="setup-row-net ${posNeg(d.net)}">${money(d.net, true)}</span>
     `;
@@ -2169,7 +2231,7 @@ function renderSetupsBreakdown(trades) {
     row.className = 'setup-row';
     row.innerHTML = `
       ${badge}
-      <span class="setup-row-n">${r.trades} trd · ${winRate}%</span>
+      <span class="setup-row-n">${r.trades} trd · <span class="${winRateClass(winRate, GOAL_TARGETS.tradeWinRate)}">${winRate}%</span></span>
       <span class="setup-row-bar"><span class="setup-row-bar-fill" style="width:${(Math.abs(r.net) / maxAbs) * 100}%; background:${r.net >= 0 ? '#34e187' : '#a855f7'}"></span></span>
       <span class="setup-row-net ${posNeg(r.net)}">${money(r.net, true)}</span>
     `;
@@ -2260,7 +2322,7 @@ function renderCalendar(data) {
   const monthPct = (monthPnl / ACCOUNT_STARTING_BALANCE) * 100;
   const summaryEl = $('#cal-month-summary');
   if (monthActiveDays) {
-    summaryEl.innerHTML = `<span class="hl">${dayWR}%</span> day WR · <span class="hl">${monthTrades}</span> trades · Month total: ` +
+    summaryEl.innerHTML = `<span class="hl ${winRateClass(dayWR, GOAL_TARGETS.dayWinRate)}">${dayWR}%</span> day WR · <span class="hl">${monthTrades}</span> trades · Month total: ` +
       `<span class="hl ${posNeg(monthPnl)}">${money(monthPnl, true)} ${monthPct >= 0 ? '+' : ''}${monthPct.toFixed(2)}%</span>`;
   } else {
     summaryEl.textContent = 'No trades this month.';
@@ -2726,6 +2788,52 @@ function init() {
   });
 
   // Swipe left/right on the grid to move a month forward/back.
+  // Pull-to-refresh on the Trades tab — only triggers when already
+  // scrolled to the top (of #tab-content, the actual scroll container)
+  // and the Trades tab is the one currently showing.
+  (function attachPullToRefresh() {
+    const scrollEl = $('#tab-content');
+    const indicator = $('#ptr-indicator');
+    const THRESHOLD = 70;
+    let startY = 0, pulling = false;
+
+    scrollEl.addEventListener('touchstart', (evt) => {
+      const active = document.querySelector('.tab-pane.active');
+      if (!active || active.id !== 'pane-trades') return;
+      if (scrollEl.scrollTop > 0 || !evt.touches.length) return;
+      startY = evt.touches[0].clientY;
+      pulling = true;
+    }, { passive: true });
+
+    scrollEl.addEventListener('touchmove', (evt) => {
+      if (!pulling || !evt.touches.length) return;
+      const dy = evt.touches[0].clientY - startY;
+      if (dy <= 0) { indicator.style.height = '0px'; indicator.classList.remove('armed'); return; }
+      const h = Math.min(THRESHOLD, dy * 0.5);
+      indicator.style.height = h + 'px';
+      indicator.classList.toggle('armed', h >= THRESHOLD);
+      indicator.textContent = h >= THRESHOLD ? '↑ Release to refresh' : '↓ Pull to refresh';
+    }, { passive: true });
+
+    scrollEl.addEventListener('touchend', () => {
+      if (!pulling) return;
+      pulling = false;
+      const armed = indicator.classList.contains('armed');
+      indicator.style.height = '0px';
+      indicator.classList.remove('armed');
+      if (armed) {
+        indicator.textContent = 'Syncing…';
+        indicator.classList.add('spinning');
+        indicator.style.height = '30px';
+        fetchSnapshot().finally(() => {
+          indicator.classList.remove('spinning');
+          indicator.style.height = '0px';
+          indicator.textContent = '↓ Pull to refresh';
+        });
+      }
+    });
+  })();
+
   (function attachCalSwipe() {
     const grid = $('#cal-grid');
     let startX = 0, startY = 0, dragging = false;

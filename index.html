@@ -1476,6 +1476,26 @@ function drawEquityCumulative(curve, keepView) {
     ? `${first.date}${first.time ? ' ' + first.time : ''} → ${last.date}${last.time ? ' ' + last.time : ''} · ${money(values[values.length - 1], true)}${zoomedTag}`
     : `Projected — pinch in or double-tap to return to your trade history${zoomedTag}`;
 
+  // Live stat cards — reflect whatever window is currently visible
+  // (updates on every pan/zoom frame, not just on release).
+  if (values.length) {
+    $('#eq-current').textContent = money(values[values.length - 1], true);
+    $('#eq-peak').textContent = money(Math.max(0, ...values), true);
+    let localPeak = values[0], localWorst = 0;
+    for (const v of values) { if (v > localPeak) localPeak = v; const dd = v - localPeak; if (dd < localWorst) localWorst = dd; }
+    const ddEl = $('#eq-dd');
+    ddEl.textContent = money(localWorst); ddEl.className = 'eq-stat-v neg';
+    $('#eq-trades').textContent = slice.length;
+  }
+  if (eqShowGoal && eqGoalRef) {
+    const goalVal = eqGoalRef.goalValAt(realEndIdx);
+    $('#eq-goal-pace').textContent = money(goalVal, true);
+    const gap = (values.length ? values[values.length - 1] : 0) - goalVal;
+    const gapEl = $('#eq-goal-gap');
+    gapEl.textContent = money(gap, true);
+    gapEl.className = 'eq-stat-v ' + posNeg(gap);
+  }
+
   if (!eqGestureBound) { attachEquityGestures(); eqGestureBound = true; }
   renderEqBrush();
   $('#eq-brush-wrap').style.display = 'block';

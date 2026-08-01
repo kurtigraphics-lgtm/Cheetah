@@ -1410,11 +1410,14 @@ function renderAll() {
   if (yrSyncPositions) yrSyncPositions();
 }
 
+const LAST_TAB_KEY = 'cheetah_last_tab';
+
 function switchTab(name) {
   document.querySelectorAll('.tab-pane').forEach((p) => p.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
   $('#pane-' + name).classList.add('active');
   document.querySelector(`.tab-btn[data-tab="${name}"]`).classList.add('active');
+  localStorage.setItem(LAST_TAB_KEY, name);
 }
 
 function init() {
@@ -1476,6 +1479,10 @@ function init() {
 
   const cached = localStorage.getItem(LAST_GOOD_KEY);
   if (cached) render(JSON.parse(cached));
+
+  const lastTab = localStorage.getItem(LAST_TAB_KEY);
+  if (lastTab && $('#pane-' + lastTab)) switchTab(lastTab);
+
   fetchSnapshot();
 }
 

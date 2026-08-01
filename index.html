@@ -720,18 +720,21 @@ function renderSummary(scoped, data) {
   const ddEl = $('#stat-dd'); ddEl.textContent = money(scoped.drawdown); ddEl.className = 'stat-value ' + (scoped.drawdown < 0 ? 'neg' : '');
   const tEl = $('#stat-today'); tEl.textContent = money(data.todayPnl, true); tEl.className = 'stat-value ' + posNeg(data.todayPnl);
 
-  if (data.account) {
+  // data.account was never actually populated with balance/equity by the
+  // desktop app (it's just an account ID string) — compute the real
+  // figures instead from realized P&L on trades since the account's
+  // actual start date (15 Jun 2026), against the real starting balance.
+  const liveTrades = (data.recentTrades || []).filter((t) => t.closeDate && t.closeDate >= '2026-06-08');
+  if (liveTrades.length) {
+    const livePnl = liveTrades.reduce((s, t) => s + (t.pnl || 0), 0);
+    const liveEquity = ACCOUNT_STARTING_BALANCE + livePnl;
     $('#account-panel').style.display = 'flex';
-    $('#stat-balance').textContent = money(data.account.balance);
-    $('#stat-equity').textContent = money(data.account.equity);
+    $('#stat-balance').textContent = money(ACCOUNT_STARTING_BALANCE);
+    $('#stat-equity').textContent = money(liveEquity);
+    const pct = (livePnl / ACCOUNT_STARTING_BALANCE) * 100;
     const retEl = $('#stat-return');
-    if (typeof data.account.equity === 'number' && ACCOUNT_STARTING_BALANCE) {
-      const pct = ((data.account.equity - ACCOUNT_STARTING_BALANCE) / ACCOUNT_STARTING_BALANCE) * 100;
-      retEl.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
-      retEl.className = 'stat-value ' + (pct >= 0 ? 'pos' : 'neg');
-    } else {
-      retEl.textContent = '—';
-    }
+    retEl.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
+    retEl.className = 'stat-value ' + (pct >= 0 ? 'pos' : 'neg');
   } else {
     $('#account-panel').style.display = 'none';
   }

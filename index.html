@@ -104,7 +104,10 @@
 
   /* Chart / Equity */
   .chart-wrap { padding: 16px; }
-  .chart-svg { width: 100%; height: 220px; background: var(--panel-alt); border: 1px solid var(--border); border-radius: 6px; touch-action: pan-y; }
+  .chart-svg { background: var(--panel-alt); border: 1px solid var(--border); border-radius: 6px; touch-action: pan-y; }
+  #chart-svg { width: 100%; height: 220px; }
+  .eq-scroll { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 6px; }
+  #equity-svg { height: 220px; display: block; }
   .chart-caption { font-size: 10.5px; color: var(--text-dim); margin-top: 8px; text-align: center; }
   .chart-legend { display: flex; gap: 14px; justify-content: center; margin-top: 10px; font-size: 10px; color: var(--text-dim); }
   .chart-legend span { display: flex; align-items: center; gap: 5px; }
@@ -266,10 +269,12 @@
             <div class="eq-stat"><div class="stat-label">Worst Day</div><div class="eq-stat-v neg" id="eq-worst">—</div></div>
           </div>
           <div class="eq-svg-wrap">
-            <svg id="equity-svg" class="chart-svg" viewBox="0 0 400 220"></svg>
+            <div class="eq-scroll" id="eq-scroll">
+              <svg id="equity-svg" class="chart-svg" viewBox="0 0 400 220"></svg>
+            </div>
             <div id="eq-tooltip"></div>
           </div>
-          <div class="chart-caption" id="equity-caption">Tap the chart to inspect a point</div>
+          <div class="chart-caption" id="equity-caption">Drag left to scroll history · tap to inspect a point</div>
         </div>
       </div>
 
@@ -562,14 +567,19 @@ function renderEquity(data) {
   $('#eq-best').textContent = data.bestDay ? money(data.bestDay.pnl, true) : '—';
   $('#eq-worst').textContent = data.worstDay ? money(data.worstDay.pnl, true) : '—';
 
-  if (eqMode === 'cumulative') drawEquityCumulative(curve);
+  if (eqMode === 'cumulative') drawEquityCumulative(data.tradeEquityCurve && data.tradeEquityCurve.length ? data.tradeEquityCurve : curve);
   else drawEquityDaily(daily);
 }
 
 function drawEquityCumulative(curve) {
   const svg = $('#equity-svg');
   svg.innerHTML = '';
-  const W = 400, H = 220, padTop = 12, padBottom = 12;
+  const H = 220, padTop = 12, padBottom = 12;
+  const pxPerPoint = curve.length > 150 ? 4 : curve.length > 60 ? 6 : 10;
+  const W = Math.max(400, curve.length * pxPerPoint);
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('width', W);
+
   const values = curve.map((p) => p.cumulative);
   const min = Math.min(0, ...values), max = Math.max(0, ...values);
   const span = (max - min) || 1;
@@ -591,7 +601,7 @@ function drawEquityCumulative(curve) {
 
   const line = document.createElementNS(ns, 'path');
   line.setAttribute('d', linePath); line.setAttribute('fill', 'none');
-  line.setAttribute('stroke', '#34e187'); line.setAttribute('stroke-width', '1.6');
+  line.setAttribute('stroke', '#34e187'); line.setAttribute('stroke-width', '1.4');
   svg.appendChild(line);
 
   const zero = document.createElementNS(ns, 'line');
@@ -599,9 +609,18 @@ function drawEquityCumulative(curve) {
   zero.setAttribute('stroke', '#2a2a2e'); zero.setAttribute('stroke-width', '1');
   svg.appendChild(zero);
 
-  $('#equity-caption').textContent = `${curve[0].date} → ${curve[curve.length - 1].date} · ${money(values[values.length - 1], true)}`;
+  const first = curve[0], last = curve[curve.length - 1];
+  $('#equity-caption').textContent = `${first.date}${first.time ? ' ' + first.time : ''} → ${last.date}${last.time ? ' ' + last.time : ''} · ${money(values[values.length - 1], true)}`;
 
-  attachEquityInspect(svg, curve.map((p, i) => ({ x: xAt(i), y: yAt(p.cumulative), date: p.date, value: p.cumulative })));
+  attachEquityInspect(svg, curve.map((p, i) => ({
+    x: xAt(i), y: yAt(p.cumulative), value: p.cumulative,
+    label: p.time ? `${p.date} ${p.time}` : p.date,
+  })));
+
+  // Default view: scroll to show the most recent trades, same as
+  // desktop's chart having "now" visible at the right edge.
+  const scroller = $('#eq-scroll');
+  requestAnimationFrame(() => { scroller.scrollLeft = scroller.scrollWidth; });
 }
 
 function drawEquityDaily(daily) {
@@ -609,6 +628,9 @@ function drawEquityDaily(daily) {
   svg.innerHTML = '';
   if (!daily.length) return;
   const W = 400, H = 220, midY = H / 2;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('width', W);
+  $('#eq-scroll').scrollLeft = 0;
   const maxAbs = Math.max(1, ...daily.map((d) => Math.abs(d.pnl)));
   const barW = Math.max(2, (W / daily.length) - 2);
   const ns = 'http://www.w3.org/2000/svg';
@@ -626,7 +648,7 @@ function drawEquityDaily(daily) {
     rect.setAttribute('height', Math.max(1, h));
     rect.setAttribute('fill', d.pnl >= 0 ? '#34e187' : '#a855f7');
     svg.appendChild(rect);
-    points.push({ x: x + barW / 2, y: d.pnl >= 0 ? midY - h : midY + h, date: d.date, value: d.pnl });
+    points.push({ x: x + barW / 2, y: d.pnl >= 0 ? midY - h : midY + h, label: d.date, value: d.pnl });
     x += barW + 2;
   }
   $('#equity-caption').textContent = `${daily[0].date} → ${daily[daily.length - 1].date} · daily P&L`;
@@ -634,24 +656,28 @@ function drawEquityDaily(daily) {
 }
 
 // Tap/click nearest point and show a small tooltip above it — the
-// mobile equivalent of hovering the desktop equity chart.
+// mobile equivalent of hovering the desktop equity chart. The SVG is
+// rendered 1:1 (width attribute === viewBox width), so client coords
+// map directly to viewBox units regardless of horizontal scroll.
 function attachEquityInspect(svg, points) {
   const tooltip = $('#eq-tooltip');
+  const wrap = document.querySelector('.eq-svg-wrap');
   const handler = (evt) => {
-    const rect = svg.getBoundingClientRect();
+    const svgRect = svg.getBoundingClientRect();
     const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
-    const svgX = ((clientX - rect.left) / rect.width) * 400;
+    const svgX = clientX - svgRect.left;
     let nearest = points[0], bestDist = Infinity;
     for (const p of points) {
       const d = Math.abs(p.x - svgX);
       if (d < bestDist) { bestDist = d; nearest = p; }
     }
-    const px = (nearest.x / 400) * rect.width;
-    const py = (nearest.y / 220) * rect.height;
-    tooltip.style.left = px + 'px';
-    tooltip.style.top = py + 'px';
+    const wrapRect = wrap.getBoundingClientRect();
+    const pointClientX = svgRect.left + nearest.x;
+    const pointClientY = svgRect.top + nearest.y;
+    tooltip.style.left = (pointClientX - wrapRect.left) + 'px';
+    tooltip.style.top = (pointClientY - wrapRect.top) + 'px';
     tooltip.style.display = 'block';
-    tooltip.innerHTML = `<b>${nearest.date}</b> · <span style="color:${nearest.value >= 0 ? '#34e187' : '#a855f7'}">${money(nearest.value, true)}</span>`;
+    tooltip.innerHTML = `<b>${nearest.label}</b> · <span style="color:${nearest.value >= 0 ? '#34e187' : '#a855f7'}">${money(nearest.value, true)}</span>`;
   };
   svg.onclick = handler;
   svg.ontouchstart = handler;

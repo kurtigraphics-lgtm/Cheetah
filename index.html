@@ -121,6 +121,7 @@
   .tab-pane.active { display: block; }
 
   /* Trades (journal) */
+  #trades-summary-line { font-size: 10.5px; color: var(--text-dim); padding: 12px 16px 0; }
   .jr-table-head { display: grid; grid-template-columns: 74px 1fr; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); padding: 12px 16px 6px; }
   .jr-day-header { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 16px 6px; margin-top: 4px; font-size: 12px; font-weight: 700; color: var(--text); border-bottom: 1px solid var(--border); }
   .jr-day-count { font-size: 10.5px; font-weight: 600; color: var(--text-dim); }
@@ -395,6 +396,7 @@
 
     <div id="tab-content">
       <div class="tab-pane active" id="pane-trades">
+        <div id="trades-summary-line"></div>
         <div class="jr-table-head"><span>Time</span><span>Event</span></div>
         <div id="trade-list"></div>
       </div>
@@ -520,6 +522,11 @@
         <div class="report-section">
           <h3>Day of Week</h3>
           <div id="rp-dow"></div>
+        </div>
+
+        <div class="report-section">
+          <h3>Time of Day</h3>
+          <div id="rp-tod"></div>
         </div>
       </div>
 
@@ -742,9 +749,13 @@ function renderSparklines(data) {
 }
 
 // ── Render: Trades tab (journal, grouped by day) ───────────────────
-function renderTrades(scopedTrades) {
+function renderTrades(scopedTrades, dayCount) {
   const list = $('#trade-list');
   list.innerHTML = '';
+  const total = scopedTrades.length;
+  $('#trades-summary-line').textContent = dayCount != null
+    ? `${total} trade${total === 1 ? '' : 's'} · ${dayCount} day${dayCount === 1 ? '' : 's'}`
+    : `${total} trade${total === 1 ? '' : 's'}`;
   const trades = scopedTrades.slice().reverse().slice(0, 100);
   lastRenderedTrades = trades;
   if (trades.length === 0) { list.innerHTML = '<div class="jr-empty">No trades in this snapshot yet.</div>'; return; }
@@ -1362,6 +1373,47 @@ function renderReport(data) {
 
   renderSetupsBreakdown(data.trades || []);
   renderDayOfWeekBreakdown(data.trades || []);
+  renderTimeOfDayBreakdown(data.trades || []);
+}
+
+function renderTimeOfDayBreakdown(trades) {
+  const el = $('#rp-tod');
+  el.innerHTML = '';
+  const BUCKETS = [
+    { label: '00–04', from: 0, to: 4 },
+    { label: '04–08', from: 4, to: 8 },
+    { label: '08–12', from: 8, to: 12 },
+    { label: '12–16', from: 12, to: 16 },
+    { label: '16–20', from: 16, to: 20 },
+    { label: '20–24', from: 20, to: 24 },
+  ].map((b) => ({ ...b, net: 0, trades: 0, wins: 0 }));
+
+  for (const t of trades) {
+    if (!t.closeTime) continue;
+    const hour = parseInt(t.closeTime.split(':')[0], 10);
+    if (Number.isNaN(hour)) continue;
+    const bucket = BUCKETS.find((b) => hour >= b.from && hour < b.to);
+    if (!bucket) continue;
+    bucket.net += t.pnl || 0;
+    bucket.trades += 1;
+    if ((t.pnl || 0) > 0) bucket.wins += 1;
+  }
+  const active = BUCKETS.filter((b) => b.trades > 0);
+  if (!active.length) { el.innerHTML = '<div class="jr-empty">No trades in range.</div>'; return; }
+  const maxAbs = Math.max(1, ...BUCKETS.map((b) => Math.abs(b.net)));
+  for (const b of BUCKETS) {
+    if (!b.trades) continue;
+    const winRate = Math.round((b.wins / b.trades) * 100);
+    const row = document.createElement('div');
+    row.className = 'setup-row';
+    row.innerHTML = `
+      <span class="setup-row-n" style="width:44px">${b.label}</span>
+      <span class="setup-row-n">${b.trades} trd · ${winRate}%</span>
+      <span class="setup-row-bar"><span class="setup-row-bar-fill" style="width:${(Math.abs(b.net) / maxAbs) * 100}%; background:${b.net >= 0 ? '#34e187' : '#a855f7'}"></span></span>
+      <span class="setup-row-net ${posNeg(b.net)}">${money(b.net, true)}</span>
+    `;
+    el.appendChild(row);
+  }
 }
 
 function renderDayOfWeekBreakdown(trades) {
@@ -1770,7 +1822,7 @@ function renderAll() {
   lastScoped = scoped;
   updateRangeLabel(scoped);
   renderSummary(scoped, currentData);
-  renderTrades(scoped.trades);
+  renderTrades(scoped.trades, scoped.dayCount);
   renderChart(scoped.trades, scoped.daily);
   renderEquity(scoped);
   renderReport(scoped);

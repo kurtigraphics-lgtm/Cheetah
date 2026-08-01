@@ -2759,8 +2759,17 @@ function init() {
     const scoped = lastScoped;
     const curFrom = customFrom || (scoped && scoped.from) || yrStart;
     const curTo = customTo || (scoped && scoped.to) || yrEnd;
-    customFrom = new Date(curFrom.getTime() + deltaDays * 86400000);
-    customTo = new Date(curTo.getTime() + deltaDays * 86400000);
+    const shiftedFrom = new Date(curFrom.getTime() + deltaDays * 86400000);
+    const shiftedTo = new Date(curTo.getTime() + deltaDays * 86400000);
+    // Snap to full-day boundaries — otherwise "to" often carries over
+    // as whatever time "now" happened to be (e.g. 14:32) rather than
+    // 23:59:59, silently excluding anything after that time on the
+    // target day (this was the actual cause of "yesterday's trades
+    // don't show up").
+    shiftedFrom.setHours(0, 0, 0, 0);
+    shiftedTo.setHours(23, 59, 59, 999);
+    customFrom = shiftedFrom;
+    customTo = shiftedTo;
     selectedRange = 'custom';
     document.querySelectorAll('.range-chip').forEach((b) => b.classList.remove('active'));
     renderAll();

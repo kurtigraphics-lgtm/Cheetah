@@ -65,6 +65,16 @@
 
   #dash { display: none; flex-direction: column; flex: 1; min-height: 0; }
 
+  /* ── Range picker ─────────────────────────────────────────────── */
+  #range-bar { background: var(--panel); border-bottom: 1px solid var(--border); padding: 10px 16px; }
+  #range-label { font-size: 10.5px; color: var(--text-dim); margin-bottom: 8px; font-variant-numeric: tabular-nums; }
+  #range-chips { display: flex; gap: 6px; overflow-x: auto; }
+  .range-chip {
+    flex-shrink: 0; background: var(--panel-alt); border: 1px solid var(--border); color: var(--text-dim);
+    padding: 5px 12px; border-radius: 3px; font-size: 11px; font-weight: 700; cursor: pointer; font-family: inherit;
+  }
+  .range-chip.active { background: #16281f; color: var(--green-bright); border-color: var(--green); }
+
   /* ── Persistent top summary bar ─────────────────────────────────── */
   .summary-panel { background: var(--panel); border-bottom: 1px solid var(--border); padding: 14px 16px; }
   .stat-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; }
@@ -105,6 +115,11 @@
   /* Chart / Equity */
   .chart-wrap { padding: 16px; }
   .chart-svg { background: var(--panel-alt); border: 1px solid var(--border); border-radius: 6px; touch-action: pan-y; }
+  /* The bar-chart (#chart-svg) never scrolls horizontally, so pan-y (page
+     scrolls vertically through it) is correct there. Equity/trade charts
+     DO scroll horizontally via their .eq-scroll wrapper — pan-y was
+     blocking that drag gesture entirely, which is why dragging did nothing. */
+  #equity-svg, #tcm-svg { touch-action: pan-x; }
   #chart-svg { width: 100%; height: 220px; }
   .eq-scroll { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 6px; }
   #equity-svg { height: 220px; display: block; }
@@ -245,12 +260,23 @@
   </div>
 
   <div id="dash">
+    <div id="range-bar">
+      <div id="range-label"></div>
+      <div id="range-chips">
+        <button class="range-chip" data-range="today">Today</button>
+        <button class="range-chip active" data-range="1w">1W</button>
+        <button class="range-chip" data-range="2w">2W</button>
+        <button class="range-chip" data-range="1m">1M</button>
+        <button class="range-chip" data-range="3m">3M</button>
+        <button class="range-chip" data-range="all">All</button>
+      </div>
+    </div>
     <div class="summary-panel">
       <div class="stat-label">Net P&amp;L (This Week)</div>
       <div id="stat-net" class="flat">—</div>
       <div id="stat-net-sub"></div>
       <div class="stat-row">
-        <div class="stat"><div class="stat-label">Trades (Wk)</div><div class="stat-value" id="stat-count">—</div></div>
+        <div class="stat"><div class="stat-label">Trades</div><div class="stat-value" id="stat-count">—</div></div>
         <div class="stat"><div class="stat-label">Drawdown</div><div class="stat-value" id="stat-dd">—</div></div>
         <div class="stat"><div class="stat-label">Today</div><div class="stat-value" id="stat-today">—</div></div>
       </div>
@@ -480,15 +506,14 @@ async function fetchSnapshot() {
 function setStatus(kind, text) { const el = $('#sync-status'); el.textContent = text; el.className = 'sync-status ' + kind; }
 
 // ── Render: top summary bar + account ──────────────────────────────
-function renderSummary(data) {
+function renderSummary(scoped, data) {
   const netEl = $('#stat-net');
-  netEl.textContent = money(data.weekPnl, true);
-  netEl.className = posNeg(data.weekPnl);
-  const w = data.weekWinCount ?? 0, l = data.weekLossCount ?? 0;
-  $('#stat-net-sub').innerHTML = `<span class="w">${w}W</span> / <span class="l">${l}L</span> (${data.weekWinRate != null ? data.weekWinRate + '%' : '—'})`;
+  netEl.textContent = money(scoped.netPnl, true);
+  netEl.className = posNeg(scoped.netPnl);
+  $('#stat-net-sub').innerHTML = `<span class="w">${scoped.winCount}W</span> / <span class="l">${scoped.lossCount}L</span> (${scoped.winRate != null ? scoped.winRate + '%' : '—'})`;
 
-  $('#stat-count').textContent = data.weekTradeCount ?? '—';
-  const ddEl = $('#stat-dd'); ddEl.textContent = money(data.maxDrawdown); ddEl.className = 'stat-value ' + (data.maxDrawdown < 0 ? 'neg' : '');
+  $('#stat-count').textContent = scoped.tradeCount ?? '—';
+  const ddEl = $('#stat-dd'); ddEl.textContent = money(scoped.drawdown); ddEl.className = 'stat-value ' + (scoped.drawdown < 0 ? 'neg' : '');
   const tEl = $('#stat-today'); tEl.textContent = money(data.todayPnl, true); tEl.className = 'stat-value ' + posNeg(data.todayPnl);
 
   if (data.account) {
@@ -501,10 +526,10 @@ function renderSummary(data) {
 }
 
 // ── Render: Trades tab (journal, grouped by day) ───────────────────
-function renderTrades(data) {
+function renderTrades(scopedTrades) {
   const list = $('#trade-list');
   list.innerHTML = '';
-  const trades = (data.recentTrades || []).slice().reverse().slice(0, 60);
+  const trades = scopedTrades.slice().reverse().slice(0, 100);
   lastRenderedTrades = trades;
   if (trades.length === 0) { list.innerHTML = '<div class="jr-empty">No trades in this snapshot yet.</div>'; return; }
   let lastDay = null;
@@ -640,9 +665,9 @@ function drawCandles(bars, trade) {
 }
 
 // ── Render: Chart tab (per-trade bar chart + MAE/MFE wick) ─────────
-function renderChart(data) {
+function renderChart(scopedTrades) {
   const svg = $('#chart-svg');
-  const trades = (data.recentTrades || []).slice(-60);
+  const trades = scopedTrades.slice(-80);
   svg.innerHTML = '';
   if (!trades.length) return;
   const W = 400, H = 220, midY = H / 2;
@@ -698,9 +723,9 @@ function renderChart(data) {
 // ── Render: Equity tab (cumulative area / daily bars + inspect) ────
 let eqMode = 'cumulative';
 
-function renderEquity(data) {
-  const daily = data.dailyPnl || [];
-  const curve = data.equityCurve || [];
+function renderEquity(scoped) {
+  const daily = scoped.daily || [];
+  const curve = scoped.tradeCurve || [];
   $('#eq-tooltip').style.display = 'none';
 
   if (!curve.length) {
@@ -715,11 +740,11 @@ function renderEquity(data) {
   const peak = Math.max(0, ...values);
   $('#eq-current').textContent = money(values[values.length - 1], true);
   $('#eq-peak').textContent = money(peak, true);
-  $('#eq-dd').textContent = money(data.maxDrawdown);
-  $('#eq-best').textContent = data.bestDay ? money(data.bestDay.pnl, true) : '—';
-  $('#eq-worst').textContent = data.worstDay ? money(data.worstDay.pnl, true) : '—';
+  $('#eq-dd').textContent = money(scoped.drawdown);
+  $('#eq-best').textContent = scoped.bestDay ? money(scoped.bestDay.pnl, true) : '—';
+  $('#eq-worst').textContent = scoped.worstDay ? money(scoped.worstDay.pnl, true) : '—';
 
-  if (eqMode === 'cumulative') drawEquityCumulative(data.tradeEquityCurve && data.tradeEquityCurve.length ? data.tradeEquityCurve : curve);
+  if (eqMode === 'cumulative') drawEquityCumulative(curve);
   else drawEquityDaily(daily);
 }
 
@@ -847,7 +872,7 @@ function renderReport(data) {
   $('#rp-trades').textContent = o.trades ?? '—';
   $('#rp-best').textContent = data.bestDay ? `${money(data.bestDay.pnl, true)} (${data.bestDay.date})` : '—';
   $('#rp-worst').textContent = data.worstDay ? `${money(data.worstDay.pnl, true)} (${data.worstDay.date})` : '—';
-  $('#rp-dd').textContent = money(data.maxDrawdown);
+  $('#rp-dd').textContent = money(data.drawdown);
 
   const l = data.long || {}, s = data.short || {};
   $('#rp-long-net').textContent = money(l.netProfit, true); $('#rp-long-net').className = 'v ' + posNeg(l.netProfit);
@@ -897,16 +922,113 @@ function renderCalendar(data) {
   }
 }
 
+// ── Range scoping — mirrors desktop's quick-range buttons ──────────
+let selectedRange = '1w';
+let lastScoped = null;
+
+function rangeFromFor(key, now) {
+  const startOf = (d) => { const c = new Date(d); c.setHours(0, 0, 0, 0); return c; };
+  if (key === 'today') return startOf(now);
+  if (key === '1w') { const dw = (now.getDay() + 6) % 7; return startOf(new Date(now - dw * 86400000)); }
+  if (key === '2w') { const dw = (now.getDay() + 6) % 7; return startOf(new Date(now - (dw + 7) * 86400000)); }
+  if (key === '1m') return startOf(new Date(now.getFullYear(), now.getMonth() - 1, now.getDate()));
+  if (key === '3m') return startOf(new Date(now.getFullYear(), now.getMonth() - 3, now.getDate()));
+  return null; // 'all'
+}
+
+function sideStatsClient(trades) {
+  const wins = trades.filter((t) => (t.pnl || 0) > 0);
+  const losses = trades.filter((t) => (t.pnl || 0) < 0);
+  const netProfit = trades.reduce((s, t) => s + (t.pnl || 0), 0);
+  const grossProfit = wins.reduce((s, t) => s + (t.pnl || 0), 0);
+  const grossLoss = losses.reduce((s, t) => s + (t.pnl || 0), 0);
+  return {
+    trades: trades.length,
+    netProfit: Math.round(netProfit * 100) / 100,
+    winRate: trades.length ? Math.round((wins.length / trades.length) * 1000) / 10 : null,
+    avgWin: wins.length ? Math.round((grossProfit / wins.length) * 100) / 100 : null,
+    avgLoss: losses.length ? Math.round((grossLoss / losses.length) * 100) / 100 : null,
+    profitFactor: grossLoss !== 0 ? Math.round((grossProfit / Math.abs(grossLoss)) * 100) / 100 : null,
+  };
+}
+
+// Builds a range-scoped view from the raw synced snapshot. Note this is
+// bounded by what actually got synced (last 200 trades, last 120 days of
+// daily P&L) — a very old "All" range on a high-volume account may not
+// reach back as far as it would on desktop, since that much history
+// isn't currently in the synced file.
+function computeScoped(data, rangeKey) {
+  const now = new Date();
+  const from = rangeFromFor(rangeKey, now);
+  const allTrades = data.recentTrades || [];
+  const trades = allTrades.filter((t) => {
+    if (!from) return true;
+    if (!t.closeDate) return false;
+    const d = new Date(`${t.closeDate}T${t.closeTime || '00:00'}`);
+    return d >= from && d <= now;
+  });
+  const daily = (data.dailyPnl || []).filter((d) => !from || new Date(d.date) >= from);
+
+  let running = 0;
+  const tradeCurve = trades.map((t) => {
+    running += (t.pnl || 0);
+    return { date: t.closeDate, time: t.closeTime, cumulative: Math.round(running * 100) / 100 };
+  });
+
+  let peak = 0, worst = 0, runningDaily = 0;
+  for (const d of daily) {
+    runningDaily += d.pnl;
+    if (runningDaily > peak) peak = runningDaily;
+    const dd = runningDaily - peak;
+    if (dd < worst) worst = dd;
+  }
+  const bestDay = daily.length ? daily.reduce((a, b) => (b.pnl > a.pnl ? b : a), daily[0]) : null;
+  const worstDay = daily.length ? daily.reduce((a, b) => (b.pnl < a.pnl ? b : a), daily[0]) : null;
+  const winTrades = trades.filter((t) => (t.pnl || 0) > 0);
+  const lossTrades = trades.filter((t) => (t.pnl || 0) < 0);
+
+  return {
+    from, to: now, trades, daily, tradeCurve,
+    netPnl: Math.round(trades.reduce((s, t) => s + (t.pnl || 0), 0) * 100) / 100,
+    tradeCount: trades.length,
+    winCount: winTrades.length,
+    lossCount: lossTrades.length,
+    winRate: trades.length ? Math.round((winTrades.length / trades.length) * 1000) / 10 : null,
+    drawdown: Math.round(worst * 100) / 100,
+    bestDay: bestDay ? { date: bestDay.date, pnl: bestDay.pnl } : null,
+    worstDay: worstDay ? { date: worstDay.date, pnl: worstDay.pnl } : null,
+    overall: sideStatsClient(trades),
+    long: sideStatsClient(trades.filter((t) => (t.type || '').toUpperCase() === 'BUY')),
+    short: sideStatsClient(trades.filter((t) => (t.type || '').toUpperCase() === 'SELL')),
+  };
+}
+
+function fmtRangeDate(d) {
+  return d.toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
+}
+function updateRangeLabel(scoped) {
+  const fromStr = scoped.from ? fmtRangeDate(scoped.from) : 'Inception';
+  $('#range-label').textContent = `${fromStr} → ${fmtRangeDate(scoped.to)}`;
+}
+
 function render(data) {
   currentData = data;
   $('#empty-state').style.display = 'none';
   $('#dash').style.display = 'flex';
-  renderSummary(data);
-  renderTrades(data);
-  renderChart(data);
-  renderEquity(data);
-  renderReport(data);
-  renderCalendar(data);
+  renderAll();
+}
+
+function renderAll() {
+  if (!currentData) return;
+  const scoped = computeScoped(currentData, selectedRange);
+  lastScoped = scoped;
+  updateRangeLabel(scoped);
+  renderSummary(scoped, currentData);
+  renderTrades(scoped.trades);
+  renderChart(scoped.trades);
+  renderEquity(scoped);
+  renderReport(scoped);
+  renderCalendar(currentData); // calendar has its own month nav, not range-scoped
 }
 
 function switchTab(name) {
@@ -932,6 +1054,15 @@ function init() {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
 
+  document.querySelectorAll('.range-chip').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.range-chip').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      selectedRange = btn.dataset.range;
+      renderAll();
+    });
+  });
+
   $('#tcm-close').addEventListener('click', closeTradeChart);
 
   document.querySelectorAll('.eq-toggle-btn').forEach((btn) => {
@@ -939,7 +1070,7 @@ function init() {
       document.querySelectorAll('.eq-toggle-btn').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
       eqMode = btn.dataset.mode;
-      if (currentData) renderEquity(currentData);
+      if (lastScoped) renderEquity(lastScoped);
     });
   });
 

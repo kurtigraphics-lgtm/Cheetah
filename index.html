@@ -1035,8 +1035,16 @@ function computeScoped(data, rangeKey) {
 
   return {
     from, to, trades, daily, tradeCurve,
-    netPnl: Math.round(trades.reduce((s, t) => s + (t.pnl || 0), 0) * 100) / 100,
-    tradeCount: trades.length,
+    // netPnl/tradeCount come from the daily totals, not the raw trade
+    // list — recentTrades is capped at 200 entries (only ~1-2 weeks at
+    // typical volume), while dailyPnl covers up to 120 days properly, so
+    // using raw trades here made longer ranges silently plateau at
+    // whatever the 200-trade window happened to cover.
+    netPnl: Math.round(daily.reduce((s, d) => s + d.pnl, 0) * 100) / 100,
+    tradeCount: daily.reduce((s, d) => s + d.trades, 0),
+    // Win/loss counts and win rate still come from the raw trade list —
+    // there's no per-day win/loss breakdown synced, so these remain
+    // accurate only within whatever window the last 200 trades cover.
     winCount: winTrades.length,
     lossCount: lossTrades.length,
     winRate: trades.length ? Math.round((winTrades.length / trades.length) * 1000) / 10 : null,

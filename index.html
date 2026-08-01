@@ -28,18 +28,14 @@
   }
   body {
     min-height: 100vh;
-    display: flex;
-    justify-content: center;
+    display: flex; justify-content: center;
     padding: env(safe-area-inset-top,0) env(safe-area-inset-right,0) env(safe-area-inset-bottom,0) env(safe-area-inset-left,0);
   }
-  #app-shell { width: 100%; max-width: 480px; }
+  #app-shell { width: 100%; max-width: 480px; display: flex; flex-direction: column; min-height: 100vh; }
 
-  /* ── Title bar ─────────────────────────────────────────────── */
   header {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border);
-    background: var(--panel);
+    padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--panel);
   }
   .brand { display: flex; align-items: center; gap: 8px; }
   #title-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-dim); transition: background .3s ease; }
@@ -61,60 +57,40 @@
   .sync-status.error { color: var(--purple-bright); }
   .sync-status.loading { color: var(--gold); }
 
-  #empty-state {
-    padding: 50px 24px; text-align: center; color: var(--text-dim); font-size: 13px; line-height: 1.6;
-  }
+  #empty-state { padding: 50px 24px; text-align: center; color: var(--text-dim); font-size: 13px; line-height: 1.6; }
   #empty-state button {
     margin-top: 16px; background: var(--panel-alt); color: var(--text); border: 1px solid var(--border);
     padding: 9px 18px; border-radius: 4px; font-weight: 600; font-size: 12.5px; cursor: pointer;
   }
 
-  #dash { display: none; flex-direction: column; }
+  #dash { display: none; flex-direction: column; flex: 1; min-height: 0; }
 
-  /* ── Summary panel — mirrors #summary-bar on desktop ─────────── */
-  .summary-panel {
-    background: var(--panel);
-    border-bottom: 1px solid var(--border);
-    padding: 14px 16px;
-  }
+  /* ── Persistent top summary bar ─────────────────────────────────── */
+  .summary-panel { background: var(--panel); border-bottom: 1px solid var(--border); padding: 14px 16px; }
   .stat-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; }
-  #stat-net { font-size: 30px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  #stat-net { font-size: 28px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
   #stat-net.pos { color: var(--green-bright); }
   #stat-net.neg { color: var(--purple-bright); }
-  #stat-net-sub { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
-
-  .stat-row { display: flex; gap: 22px; margin-top: 14px; }
-  .stat-row .stat-value { font-size: 15px; font-weight: 700; margin-top: 3px; font-variant-numeric: tabular-nums; }
+  #stat-net-sub { font-size: 11px; margin-top: 2px; }
+  #stat-net-sub .w { color: var(--green-bright); font-weight: 700; }
+  #stat-net-sub .l { color: var(--purple-bright); font-weight: 700; }
+  .stat-row { display: flex; gap: 20px; margin-top: 12px; }
+  .stat-row .stat-value { font-size: 14px; font-weight: 700; margin-top: 3px; font-variant-numeric: tabular-nums; }
   .stat-value.pos { color: var(--green-bright); }
   .stat-value.neg { color: var(--purple-bright); }
 
-  /* ── Secondary panel: account ─────────────────────────────────── */
-  #account-panel {
-    display: none;
-    background: var(--panel-alt);
-    border-bottom: 1px solid var(--border);
-    padding: 12px 16px;
-    gap: 22px;
-  }
+  #account-panel { display: none; background: var(--panel-alt); border-bottom: 1px solid var(--border); padding: 12px 16px; gap: 22px; }
 
-  /* ── Journal-style trade log, grouped by day ───────────────────── */
-  .jr-table-head {
-    display: grid; grid-template-columns: 62px 1fr;
-    font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
-    color: var(--text-dim); padding: 12px 16px 6px;
-  }
-  .jr-day-header {
-    display: flex; justify-content: space-between; align-items: baseline;
-    padding: 10px 16px 6px; margin-top: 4px;
-    font-size: 12px; font-weight: 700; color: var(--text);
-    border-bottom: 1px solid var(--border);
-  }
+  /* ── Tab content area ─────────────────────────────────────────── */
+  #tab-content { flex: 1; overflow-y: auto; padding-bottom: 70px; }
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; }
+
+  /* Trades (journal) */
+  .jr-table-head { display: grid; grid-template-columns: 62px 1fr; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); padding: 12px 16px 6px; }
+  .jr-day-header { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 16px 6px; margin-top: 4px; font-size: 12px; font-weight: 700; color: var(--text); border-bottom: 1px solid var(--border); }
   .jr-day-count { font-size: 10.5px; font-weight: 600; color: var(--text-dim); }
-  .jr-row {
-    display: grid; grid-template-columns: 62px 1fr;
-    padding: 7px 16px; font-size: 12px; border-bottom: 1px solid #1c1c1f;
-    align-items: center;
-  }
+  .jr-row { display: grid; grid-template-columns: 62px 1fr; padding: 7px 16px; font-size: 12px; border-bottom: 1px solid #1c1c1f; align-items: center; }
   .jr-time { color: var(--text-dim); font-variant-numeric: tabular-nums; font-size: 11px; }
   .jr-event { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
   .jr-side { font-weight: 800; font-size: 10.5px; letter-spacing: 0.4px; flex-shrink: 0; width: 30px; }
@@ -126,30 +102,67 @@
   .jr-pnl.neg { color: var(--purple-bright); }
   .jr-empty { color: var(--text-dim); font-size: 12.5px; padding: 30px 20px; text-align: center; }
 
+  /* Chart / Equity */
+  .chart-wrap { padding: 16px; }
+  .chart-svg { width: 100%; height: 220px; background: var(--panel-alt); border: 1px solid var(--border); border-radius: 6px; }
+  .chart-caption { font-size: 10.5px; color: var(--text-dim); margin-top: 8px; text-align: center; }
+
+  /* Report */
+  .report-section { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+  .report-section h3 { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim); margin: 0 0 10px; }
+  .report-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 12.5px; border-bottom: 1px solid #1c1c1f; }
+  .report-row:last-child { border-bottom: none; }
+  .report-row .k { color: #b8b8c0; }
+  .report-row .v { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .report-row .v.pos { color: var(--green-bright); }
+  .report-row .v.neg { color: var(--purple-bright); }
+  .split-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .split-col h4 { font-size: 10.5px; margin: 0 0 6px; color: var(--text-dim); text-transform: uppercase; }
+
+  /* Calendar */
+  .cal-wrap { padding: 14px 16px; }
+  .cal-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .cal-nav button { background: var(--panel-alt); border: 1px solid var(--border); color: var(--text-dim); border-radius: 4px; width: 28px; height: 28px; cursor: pointer; }
+  .cal-month-label { font-size: 12.5px; font-weight: 700; }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  .cal-dow { font-size: 9px; color: var(--text-dim); text-align: center; text-transform: uppercase; padding-bottom: 4px; }
+  .cal-cell { aspect-ratio: 1; border-radius: 4px; border: 1px solid var(--border); padding: 4px; font-size: 9px; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
+  .cal-cell.empty { border: none; }
+  .cal-cell.pos { background: rgba(52,225,135,0.12); border-color: rgba(52,225,135,0.3); }
+  .cal-cell.neg { background: rgba(168,85,247,0.12); border-color: rgba(168,85,247,0.3); }
+  .cal-day-num { color: var(--text-dim); font-weight: 700; }
+  .cal-day-pnl { font-weight: 800; font-variant-numeric: tabular-nums; font-size: 8.5px; }
+  .cal-day-pnl.pos { color: var(--green-bright); }
+  .cal-day-pnl.neg { color: var(--purple-bright); }
+
+  /* ── Bottom tab bar ────────────────────────────────────────────── */
+  #tab-bar {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 10;
+    display: flex; justify-content: center;
+    background: var(--panel); border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom,0);
+  }
+  #tab-bar-inner { width: 100%; max-width: 480px; display: flex; }
+  .tab-btn {
+    flex: 1; background: none; border: none; color: var(--text-dim);
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 9px 0 8px; font-size: 9.5px; letter-spacing: 0.3px; cursor: pointer;
+    font-family: inherit; text-transform: uppercase; font-weight: 600;
+  }
+  .tab-btn svg { width: 17px; height: 17px; }
+  .tab-btn.active { color: var(--green-bright); }
+
   /* ── Settings sheet ────────────────────────────────────────────── */
-  #settings-sheet {
-    position: fixed; inset: 0; z-index: 50; display: none;
-    align-items: flex-end; justify-content: center;
-    background: rgba(0,0,0,0.6);
-  }
+  #settings-sheet { position: fixed; inset: 0; z-index: 50; display: none; align-items: flex-end; justify-content: center; background: rgba(0,0,0,0.6); }
   #settings-sheet.open { display: flex; }
-  #settings-panel {
-    width: 100%; max-width: 480px; background: var(--panel);
-    border-top: 1px solid var(--border);
-    padding: 20px 18px calc(20px + env(safe-area-inset-bottom,0));
-  }
+  #settings-panel { width: 100%; max-width: 480px; background: var(--panel); border-top: 1px solid var(--border); padding: 20px 18px calc(20px + env(safe-area-inset-bottom,0)); }
   #settings-panel h2 { font-size: 12px; letter-spacing: 2px; margin: 0 0 4px; color: var(--text); text-transform: uppercase; }
   #settings-panel p { font-size: 11.5px; color: var(--text-dim); line-height: 1.6; margin: 0 0 16px; }
   #settings-panel label { font-size: 10.5px; color: var(--text-dim); letter-spacing: 0.4px; text-transform: uppercase; display: block; margin: 12px 0 5px; }
-  #settings-panel input {
-    width: 100%; background: var(--panel-alt); border: 1px solid var(--border); border-radius: 4px;
-    padding: 10px 11px; color: var(--text); font-size: 13px; outline: none;
-  }
+  #settings-panel input { width: 100%; background: var(--panel-alt); border: 1px solid var(--border); border-radius: 4px; padding: 10px 11px; color: var(--text); font-size: 13px; outline: none; }
   #settings-panel input:focus { border-color: var(--text-dim); }
   .settings-actions { display: flex; gap: 10px; margin-top: 20px; }
-  .settings-actions button {
-    flex: 1; padding: 11px; border-radius: 4px; font-weight: 700; font-size: 12.5px; border: 1px solid var(--border); cursor: pointer;
-  }
+  .settings-actions button { flex: 1; padding: 11px; border-radius: 4px; font-weight: 700; font-size: 12.5px; border: 1px solid var(--border); cursor: pointer; }
   #settings-cancel { background: var(--panel-alt); color: var(--text-dim); }
   #settings-save { background: #1b3d2a; color: var(--green-bright); border-color: var(--green); }
 </style>
@@ -179,40 +192,111 @@
 
   <div id="dash">
     <div class="summary-panel">
-      <div class="stat-label">Net P&amp;L Today</div>
+      <div class="stat-label">Net P&amp;L (All-Time)</div>
       <div id="stat-net" class="flat">—</div>
       <div id="stat-net-sub"></div>
       <div class="stat-row">
-        <div class="stat">
-          <div class="stat-label">All-Time</div>
-          <div class="stat-value" id="stat-alltime">—</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">Win Rate</div>
-          <div class="stat-value" id="stat-winrate">—</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">Trades</div>
-          <div class="stat-value" id="stat-count">—</div>
-        </div>
+        <div class="stat"><div class="stat-label">Trades</div><div class="stat-value" id="stat-count">—</div></div>
+        <div class="stat"><div class="stat-label">Drawdown</div><div class="stat-value" id="stat-dd">—</div></div>
+        <div class="stat"><div class="stat-label">Today</div><div class="stat-value" id="stat-today">—</div></div>
       </div>
     </div>
 
     <div id="account-panel">
-      <div class="stat">
-        <div class="stat-label">Balance</div>
-        <div class="stat-value" id="stat-balance">—</div>
-      </div>
-      <div class="stat">
-        <div class="stat-label">Equity</div>
-        <div class="stat-value" id="stat-equity">—</div>
-      </div>
+      <div class="stat"><div class="stat-label">Balance</div><div class="stat-value" id="stat-balance">—</div></div>
+      <div class="stat"><div class="stat-label">Equity</div><div class="stat-value" id="stat-equity">—</div></div>
     </div>
 
-    <div class="jr-table-head"><span>Time</span><span>Event</span></div>
-    <div id="trade-list"></div>
+    <div id="tab-content">
+      <div class="tab-pane active" id="pane-trades">
+        <div class="jr-table-head"><span>Time</span><span>Event</span></div>
+        <div id="trade-list"></div>
+      </div>
+
+      <div class="tab-pane" id="pane-chart">
+        <div class="chart-wrap">
+          <svg id="chart-svg" class="chart-svg" viewBox="0 0 400 220"></svg>
+          <div class="chart-caption">P&amp;L per trade, most recent on the right</div>
+        </div>
+      </div>
+
+      <div class="tab-pane" id="pane-equity">
+        <div class="chart-wrap">
+          <svg id="equity-svg" class="chart-svg" viewBox="0 0 400 220"></svg>
+          <div class="chart-caption" id="equity-caption"></div>
+        </div>
+      </div>
+
+      <div class="tab-pane" id="pane-report">
+        <div class="report-section">
+          <h3>Overview</h3>
+          <div class="report-row"><span class="k">Net Profit</span><span class="v" id="rp-net">—</span></div>
+          <div class="report-row"><span class="k">Profit Factor</span><span class="v" id="rp-pf">—</span></div>
+          <div class="report-row"><span class="k">Win Rate</span><span class="v" id="rp-wr">—</span></div>
+          <div class="report-row"><span class="k">Avg Win</span><span class="v" id="rp-avgwin">—</span></div>
+          <div class="report-row"><span class="k">Avg Loss</span><span class="v" id="rp-avgloss">—</span></div>
+          <div class="report-row"><span class="k">Trades</span><span class="v" id="rp-trades">—</span></div>
+          <div class="report-row"><span class="k">Best Day</span><span class="v" id="rp-best">—</span></div>
+          <div class="report-row"><span class="k">Worst Day</span><span class="v" id="rp-worst">—</span></div>
+          <div class="report-row"><span class="k">Max Drawdown</span><span class="v" id="rp-dd">—</span></div>
+        </div>
+        <div class="report-section">
+          <h3>Long vs Short</h3>
+          <div class="split-cols">
+            <div class="split-col">
+              <h4>Long</h4>
+              <div class="report-row"><span class="k">Net</span><span class="v" id="rp-long-net">—</span></div>
+              <div class="report-row"><span class="k">Win %</span><span class="v" id="rp-long-wr">—</span></div>
+              <div class="report-row"><span class="k">Trades</span><span class="v" id="rp-long-n">—</span></div>
+            </div>
+            <div class="split-col">
+              <h4>Short</h4>
+              <div class="report-row"><span class="k">Net</span><span class="v" id="rp-short-net">—</span></div>
+              <div class="report-row"><span class="k">Win %</span><span class="v" id="rp-short-wr">—</span></div>
+              <div class="report-row"><span class="k">Trades</span><span class="v" id="rp-short-n">—</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-pane" id="pane-calendar">
+        <div class="cal-wrap">
+          <div class="cal-nav">
+            <button id="cal-prev">‹</button>
+            <div class="cal-month-label" id="cal-label">—</div>
+            <button id="cal-next">›</button>
+          </div>
+          <div class="cal-grid" id="cal-grid"></div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
+
+  <div id="tab-bar">
+    <div id="tab-bar-inner">
+      <button class="tab-btn active" data-tab="trades">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+        Trades
+      </button>
+      <button class="tab-btn" data-tab="chart">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M12 20V4M20 20v-7"/></svg>
+        Chart
+      </button>
+      <button class="tab-btn" data-tab="equity">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l5-5 4 4 8-9"/></svg>
+        Equity
+      </button>
+      <button class="tab-btn" data-tab="report">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h9l5 5v13H6z"/><path d="M9 12h6M9 16h6"/></svg>
+        Report
+      </button>
+      <button class="tab-btn" data-tab="calendar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+        Calendar
+      </button>
+    </div>
+  </div>
 
   <div id="settings-sheet">
     <div id="settings-panel">
@@ -241,12 +325,11 @@ const CFG_API_KEY = 'cheetah_drive_api_key';
 const LAST_GOOD_KEY = 'cheetah_last_snapshot';
 
 const $ = (sel) => document.querySelector(sel);
+let currentData = null;
+let calMonthCursor = null; // {year, month} 0-indexed month
 
 function getConfig() {
-  return {
-    fileId: localStorage.getItem(CFG_FILE_ID) || '',
-    apiKey: localStorage.getItem(CFG_API_KEY) || '',
-  };
+  return { fileId: localStorage.getItem(CFG_FILE_ID) || '', apiKey: localStorage.getItem(CFG_API_KEY) || '' };
 }
 function setConfig(fileId, apiKey) {
   localStorage.setItem(CFG_FILE_ID, fileId.trim());
@@ -258,24 +341,17 @@ function money(n, withSign) {
   const sign = n > 0 && withSign ? '+' : '';
   return sign + n.toLocaleString(undefined, { style: 'currency', currency: 'GBP', maximumFractionDigits: 2 });
 }
-function posNeg(n) {
-  if (n == null) return 'flat';
-  return n > 0 ? 'pos' : n < 0 ? 'neg' : 'flat';
-}
+function posNeg(n) { if (n == null) return 'flat'; return n > 0 ? 'pos' : n < 0 ? 'neg' : 'flat'; }
 function timeAgo(iso) {
   if (!iso) return 'never synced';
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const mins = Math.round(diffMs / 60000);
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
   if (mins < 1) return 'just now';
   if (mins < 60) return mins + 'm ago';
   const hrs = Math.round(mins / 60);
   if (hrs < 24) return hrs + 'h ago';
   return Math.round(hrs / 24) + 'd ago';
 }
-function isRecent(iso) {
-  if (!iso) return false;
-  return Date.now() - new Date(iso).getTime() < 3 * 60 * 1000;
-}
+function isRecent(iso) { return iso && (Date.now() - new Date(iso).getTime() < 3 * 60 * 1000); }
 
 function showSettings(prefill) {
   $('#settings-sheet').classList.add('open');
@@ -286,11 +362,7 @@ function hideSettings() { $('#settings-sheet').classList.remove('open'); }
 
 async function fetchSnapshot() {
   const { fileId, apiKey } = getConfig();
-  if (!fileId || !apiKey) {
-    setStatus('setup', 'Connect your Drive snapshot to get started.');
-    showSettings();
-    return;
-  }
+  if (!fileId || !apiKey) { setStatus('setup', 'Connect your Drive snapshot to get started.'); showSettings(); return; }
   setStatus('loading', 'Syncing…');
   try {
     const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media&key=${encodeURIComponent(apiKey)}`;
@@ -306,36 +378,23 @@ async function fetchSnapshot() {
     $('#title-dot').classList.toggle('live', isRecent(data.updatedAt));
   } catch (err) {
     const cached = localStorage.getItem(LAST_GOOD_KEY);
-    if (cached) {
-      render(JSON.parse(cached));
-      setStatus('error', "Couldn't refresh — showing last snapshot. " + err.message);
-    } else {
-      setStatus('error', "Couldn't load a snapshot yet. " + err.message);
-    }
+    if (cached) { render(JSON.parse(cached)); setStatus('error', "Couldn't refresh — showing last snapshot. " + err.message); }
+    else { setStatus('error', "Couldn't load a snapshot yet. " + err.message); }
   }
 }
+function setStatus(kind, text) { const el = $('#sync-status'); el.textContent = text; el.className = 'sync-status ' + kind; }
 
-function setStatus(kind, text) {
-  const el = $('#sync-status');
-  el.textContent = text;
-  el.className = 'sync-status ' + kind;
-}
-
-function render(data) {
-  $('#empty-state').style.display = 'none';
-  $('#dash').style.display = 'flex';
-
+// ── Render: top summary bar + account ──────────────────────────────
+function renderSummary(data) {
   const netEl = $('#stat-net');
-  netEl.textContent = money(data.todayPnl, true);
-  netEl.className = posNeg(data.todayPnl);
-  $('#stat-net-sub').textContent = `${data.todayTradeCount ?? 0} trade${data.todayTradeCount === 1 ? '' : 's'} today`;
+  netEl.textContent = money(data.allTimePnl, true);
+  netEl.className = posNeg(data.allTimePnl);
+  const w = data.winCount ?? 0, l = data.lossCount ?? 0;
+  $('#stat-net-sub').innerHTML = `<span class="w">${w}W</span> / <span class="l">${l}L</span> (${data.winRate != null ? data.winRate + '%' : '—'})`;
 
-  const allEl = $('#stat-alltime');
-  allEl.textContent = money(data.allTimePnl, true);
-  allEl.className = 'stat-value ' + posNeg(data.allTimePnl);
-
-  $('#stat-winrate').textContent = data.winRate != null ? data.winRate + '%' : '—';
   $('#stat-count').textContent = data.tradeCount ?? '—';
+  const ddEl = $('#stat-dd'); ddEl.textContent = money(data.maxDrawdown); ddEl.className = 'stat-value ' + (data.maxDrawdown < 0 ? 'neg' : '');
+  const tEl = $('#stat-today'); tEl.textContent = money(data.todayPnl, true); tEl.className = 'stat-value ' + posNeg(data.todayPnl);
 
   if (data.account) {
     $('#account-panel').style.display = 'flex';
@@ -344,15 +403,14 @@ function render(data) {
   } else {
     $('#account-panel').style.display = 'none';
   }
+}
 
+// ── Render: Trades tab (journal, grouped by day) ───────────────────
+function renderTrades(data) {
   const list = $('#trade-list');
   list.innerHTML = '';
-  const trades = (data.recentTrades || []).slice().reverse().slice(0, 40);
-  if (trades.length === 0) {
-    list.innerHTML = '<div class="jr-empty">No trades in this snapshot yet.</div>';
-    return;
-  }
-
+  const trades = (data.recentTrades || []).slice().reverse().slice(0, 60);
+  if (trades.length === 0) { list.innerHTML = '<div class="jr-empty">No trades in this snapshot yet.</div>'; return; }
   let lastDay = null;
   for (const t of trades) {
     const day = t.closeDate || 'Unknown date';
@@ -373,10 +431,159 @@ function render(data) {
         <span class="jr-side ${side === 'BUY' ? 'buy' : 'sell'}">${side || '—'}</span>
         <span class="jr-setup">${t.setup || 'Untitled setup'}</span>
         <span class="jr-pnl ${posNeg(t.pnl)}">${money(t.pnl, true)}</span>
-      </span>
-    `;
+      </span>`;
     list.appendChild(row);
   }
+}
+
+// ── Render: Chart tab (per-trade bar chart) ────────────────────────
+function renderChart(data) {
+  const svg = $('#chart-svg');
+  const trades = (data.recentTrades || []).slice(-60);
+  svg.innerHTML = '';
+  if (!trades.length) return;
+  const W = 400, H = 220, midY = H / 2;
+  const maxAbs = Math.max(1, ...trades.map((t) => Math.abs(t.pnl || 0)));
+  const barW = Math.max(1.5, (W / trades.length) - 2);
+  let x = 4;
+  const ns = 'http://www.w3.org/2000/svg';
+  const zero = document.createElementNS(ns, 'line');
+  zero.setAttribute('x1', 0); zero.setAttribute('x2', W); zero.setAttribute('y1', midY); zero.setAttribute('y2', midY);
+  zero.setAttribute('stroke', '#2a2a2e'); zero.setAttribute('stroke-width', '1');
+  svg.appendChild(zero);
+  for (const t of trades) {
+    const pnl = t.pnl || 0;
+    const h = Math.abs(pnl) / maxAbs * (H / 2 - 10);
+    const rect = document.createElementNS(ns, 'rect');
+    rect.setAttribute('x', x); rect.setAttribute('width', barW);
+    rect.setAttribute('y', pnl >= 0 ? midY - h : midY);
+    rect.setAttribute('height', Math.max(1, h));
+    rect.setAttribute('fill', pnl >= 0 ? '#34e187' : '#a855f7');
+    svg.appendChild(rect);
+    x += barW + 2;
+  }
+}
+
+// ── Render: Equity tab (cumulative area chart) ─────────────────────
+function renderEquity(data) {
+  const svg = $('#equity-svg');
+  const curve = data.equityCurve || [];
+  svg.innerHTML = '';
+  if (!curve.length) { $('#equity-caption').textContent = 'No history yet.'; return; }
+  const W = 400, H = 220, padTop = 12, padBottom = 12;
+  const values = curve.map((p) => p.cumulative);
+  const min = Math.min(0, ...values), max = Math.max(0, ...values);
+  const span = (max - min) || 1;
+  const yAt = (v) => padTop + (1 - (v - min) / span) * (H - padTop - padBottom);
+  const xAt = (i) => (i / (curve.length - 1 || 1)) * W;
+
+  const ns = 'http://www.w3.org/2000/svg';
+  let linePath = `M ${xAt(0)} ${yAt(values[0])}`;
+  let areaPath = `M ${xAt(0)} ${yAt(0)} L ${xAt(0)} ${yAt(values[0])}`;
+  for (let i = 1; i < curve.length; i++) {
+    linePath += ` L ${xAt(i)} ${yAt(values[i])}`;
+    areaPath += ` L ${xAt(i)} ${yAt(values[i])}`;
+  }
+  areaPath += ` L ${xAt(curve.length - 1)} ${yAt(0)} Z`;
+
+  const area = document.createElementNS(ns, 'path');
+  area.setAttribute('d', areaPath);
+  area.setAttribute('fill', 'rgba(52,225,135,0.14)');
+  svg.appendChild(area);
+
+  const line = document.createElementNS(ns, 'path');
+  line.setAttribute('d', linePath);
+  line.setAttribute('fill', 'none');
+  line.setAttribute('stroke', '#34e187');
+  line.setAttribute('stroke-width', '1.6');
+  svg.appendChild(line);
+
+  const zero = document.createElementNS(ns, 'line');
+  zero.setAttribute('x1', 0); zero.setAttribute('x2', W); zero.setAttribute('y1', yAt(0)); zero.setAttribute('y2', yAt(0));
+  zero.setAttribute('stroke', '#2a2a2e'); zero.setAttribute('stroke-width', '1');
+  svg.appendChild(zero);
+
+  $('#equity-caption').textContent = `${curve[0].date} → ${curve[curve.length - 1].date} · ${money(values[values.length - 1], true)}`;
+}
+
+// ── Render: Report tab ──────────────────────────────────────────────
+function renderReport(data) {
+  const o = data.overall || {};
+  $('#rp-net').textContent = money(o.netProfit, true); $('#rp-net').className = 'v ' + posNeg(o.netProfit);
+  $('#rp-pf').textContent = o.profitFactor != null ? o.profitFactor + 'x' : '—';
+  $('#rp-wr').textContent = o.winRate != null ? o.winRate + '%' : '—';
+  $('#rp-avgwin').textContent = money(o.avgWin, true); $('#rp-avgwin').className = 'v pos';
+  $('#rp-avgloss').textContent = money(o.avgLoss, true); $('#rp-avgloss').className = 'v neg';
+  $('#rp-trades').textContent = o.trades ?? '—';
+  $('#rp-best').textContent = data.bestDay ? `${money(data.bestDay.pnl, true)} (${data.bestDay.date})` : '—';
+  $('#rp-worst').textContent = data.worstDay ? `${money(data.worstDay.pnl, true)} (${data.worstDay.date})` : '—';
+  $('#rp-dd').textContent = money(data.maxDrawdown);
+
+  const l = data.long || {}, s = data.short || {};
+  $('#rp-long-net').textContent = money(l.netProfit, true); $('#rp-long-net').className = 'v ' + posNeg(l.netProfit);
+  $('#rp-long-wr').textContent = l.winRate != null ? l.winRate + '%' : '—';
+  $('#rp-long-n').textContent = l.trades ?? '—';
+  $('#rp-short-net').textContent = money(s.netProfit, true); $('#rp-short-net').className = 'v ' + posNeg(s.netProfit);
+  $('#rp-short-wr').textContent = s.winRate != null ? s.winRate + '%' : '—';
+  $('#rp-short-n').textContent = s.trades ?? '—';
+}
+
+// ── Render: Calendar tab ─────────────────────────────────────────────
+function renderCalendar(data) {
+  const daily = data.dailyPnl || [];
+  const byDate = {};
+  for (const d of daily) byDate[d.date] = d;
+
+  if (!calMonthCursor) {
+    const last = daily.length ? new Date(daily[daily.length - 1].date) : new Date();
+    calMonthCursor = { year: last.getFullYear(), month: last.getMonth() };
+  }
+  const { year, month } = calMonthCursor;
+  const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  $('#cal-label').textContent = `${monthNames[month]} ${year}`;
+
+  const grid = $('#cal-grid');
+  grid.innerHTML = '';
+  ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].forEach((d) => {
+    const el = document.createElement('div'); el.className = 'cal-dow'; el.textContent = d; grid.appendChild(el);
+  });
+
+  const firstOfMonth = new Date(year, month, 1);
+  const startOffset = (firstOfMonth.getDay() + 6) % 7; // Monday = 0
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  for (let i = 0; i < startOffset; i++) {
+    const el = document.createElement('div'); el.className = 'cal-cell empty'; grid.appendChild(el);
+  }
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dateStr = `${year}-${String(month + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const entry = byDate[dateStr];
+    const cell = document.createElement('div');
+    cell.className = 'cal-cell' + (entry ? (entry.pnl >= 0 ? ' pos' : ' neg') : '');
+    const numEl = `<span class="cal-day-num">${day}</span>`;
+    const pnlEl = entry ? `<span class="cal-day-pnl ${entry.pnl >= 0 ? 'pos' : 'neg'}">${money(entry.pnl, true)}</span>` : '';
+    cell.innerHTML = numEl + pnlEl;
+    grid.appendChild(cell);
+  }
+}
+
+function render(data) {
+  currentData = data;
+  $('#empty-state').style.display = 'none';
+  $('#dash').style.display = 'flex';
+  renderSummary(data);
+  renderTrades(data);
+  renderChart(data);
+  renderEquity(data);
+  renderReport(data);
+  renderCalendar(data);
+}
+
+function switchTab(name) {
+  document.querySelectorAll('.tab-pane').forEach((p) => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
+  $('#pane-' + name).classList.add('active');
+  document.querySelector(`.tab-btn[data-tab="${name}"]`).classList.add('active');
 }
 
 function init() {
@@ -384,17 +591,30 @@ function init() {
   $('#gear-btn').addEventListener('click', () => showSettings(getConfig()));
   $('#settings-cancel').addEventListener('click', hideSettings);
   $('#settings-save').addEventListener('click', () => {
-    const fileId = $('#in-file-id').value;
-    const apiKey = $('#in-api-key').value;
+    const fileId = $('#in-file-id').value, apiKey = $('#in-api-key').value;
     if (!fileId || !apiKey) return;
     setConfig(fileId, apiKey);
     hideSettings();
     fetchSnapshot();
   });
 
+  document.querySelectorAll('.tab-btn').forEach((btn) => {
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+  });
+
+  $('#cal-prev').addEventListener('click', () => {
+    calMonthCursor.month -= 1;
+    if (calMonthCursor.month < 0) { calMonthCursor.month = 11; calMonthCursor.year -= 1; }
+    if (currentData) renderCalendar(currentData);
+  });
+  $('#cal-next').addEventListener('click', () => {
+    calMonthCursor.month += 1;
+    if (calMonthCursor.month > 11) { calMonthCursor.month = 0; calMonthCursor.year += 1; }
+    if (currentData) renderCalendar(currentData);
+  });
+
   const cached = localStorage.getItem(LAST_GOOD_KEY);
   if (cached) render(JSON.parse(cached));
-
   fetchSnapshot();
 }
 

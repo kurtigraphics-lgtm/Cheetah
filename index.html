@@ -194,6 +194,31 @@
   .settings-actions button { flex: 1; padding: 11px; border-radius: 4px; font-weight: 700; font-size: 12.5px; border: 1px solid var(--border); cursor: pointer; }
   #settings-cancel { background: var(--panel-alt); color: var(--text-dim); }
   #settings-save { background: #1b3d2a; color: var(--green-bright); border-color: var(--green); }
+
+  /* ── Trade chart modal ─────────────────────────────────────────── */
+  #trade-chart-modal {
+    position: fixed; inset: 0; z-index: 60; display: none;
+    background: var(--bg); flex-direction: column;
+  }
+  #trade-chart-modal.open { display: flex; }
+  #tcm-panel { display: flex; flex-direction: column; height: 100%; }
+  #tcm-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--panel);
+    padding-top: calc(12px + env(safe-area-inset-top,0));
+  }
+  #tcm-title { font-size: 12.5px; color: var(--text); }
+  #tcm-title .buy { color: var(--green-bright); }
+  #tcm-title .sell { color: var(--sell); }
+  #tcm-title .pos { color: var(--green-bright); }
+  #tcm-title .neg { color: var(--purple-bright); }
+  #tcm-legend { display: flex; gap: 12px; align-items: center; padding: 8px 16px; font-size: 10px; color: var(--text-dim); border-bottom: 1px solid var(--border); }
+  #tcm-legend span { display: flex; align-items: center; gap: 4px; }
+  .tcm-hint { margin-left: auto; }
+  #tcm-scroll { flex: 1; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; }
+  #tcm-svg { height: 100%; display: block; }
+  .jr-row.tappable { cursor: pointer; }
+  .jr-row.tappable:active { background: #1c1c20; }
 </style>
 </head>
 <body>
@@ -349,6 +374,25 @@
     </div>
   </div>
 
+  <div id="trade-chart-modal">
+    <div id="tcm-panel">
+      <div id="tcm-head">
+        <div id="tcm-title">—</div>
+        <button class="icon-btn" id="tcm-close" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div id="tcm-legend">
+        <span><i class="lg-dot" style="background:#a855f7"></i>Entry</span>
+        <span><i class="lg-dot" style="background:#26c96a"></i>Exit</span>
+        <span class="tcm-hint">drag to scroll · pinch not supported, use two-finger scroll</span>
+      </div>
+      <div class="eq-scroll" id="tcm-scroll">
+        <svg id="tcm-svg" class="chart-svg" viewBox="0 0 400 300"></svg>
+      </div>
+    </div>
+  </div>
+
   <div id="settings-sheet">
     <div id="settings-panel">
       <h2>Connect Snapshot</h2>
@@ -461,9 +505,10 @@ function renderTrades(data) {
   const list = $('#trade-list');
   list.innerHTML = '';
   const trades = (data.recentTrades || []).slice().reverse().slice(0, 60);
+  lastRenderedTrades = trades;
   if (trades.length === 0) { list.innerHTML = '<div class="jr-empty">No trades in this snapshot yet.</div>'; return; }
   let lastDay = null;
-  for (const t of trades) {
+  trades.forEach((t, idx) => {
     const day = t.closeDate || 'Unknown date';
     if (day !== lastDay) {
       lastDay = day;
@@ -475,7 +520,7 @@ function renderTrades(data) {
     }
     const side = (t.type || '').toUpperCase();
     const row = document.createElement('div');
-    row.className = 'jr-row';
+    row.className = 'jr-row' + (t.candles ? ' tappable' : '');
     row.innerHTML = `
       <span class="jr-time">${t.closeTime || ''}</span>
       <span class="jr-event">
@@ -483,8 +528,115 @@ function renderTrades(data) {
         <span class="jr-setup">${t.setup || 'Untitled setup'}</span>
         <span class="jr-pnl ${posNeg(t.pnl)}">${money(t.pnl, true)}</span>
       </span>`;
+    if (t.candles) row.addEventListener('click', () => openTradeChart(t));
     list.appendChild(row);
+  });
+}
+let lastRenderedTrades = [];
+
+// ── Trade chart modal: parses the compact "HH:MM,o,h,l,c;..." bars and
+// draws a scrollable candlestick chart with entry/exit markers, mirroring
+// the desktop app's per-trade chart popup. ────────────────────────────
+function parseBars(str) {
+  if (!str) return [];
+  return str.split(';').filter(Boolean).map((s) => {
+    const [time, o, h, l, c] = s.split(',');
+    return { time, o: +o, h: +h, l: +l, c: +c };
+  });
+}
+
+function openTradeChart(t) {
+  const bars = [
+    ...parseBars(t.candles.before),
+    ...parseBars(t.candles.current),
+    ...parseBars(t.candles.after),
+  ];
+  if (!bars.length) return;
+
+  const side = (t.type || '').toUpperCase();
+  const sideClass = side === 'BUY' ? 'buy' : 'sell';
+  $('#tcm-title').innerHTML = `<span class="${sideClass}">${side}</span> · ${t.closeDate} ${t.openTime || ''} → ${t.closeTime} · Entry ${t.entry ?? '—'} → Exit ${t.exit ?? '—'} · <span class="${posNeg(t.pnl)}">${money(t.pnl, true)}</span>`;
+
+  drawCandles(bars, t);
+  $('#trade-chart-modal').classList.add('open');
+}
+function closeTradeChart() { $('#trade-chart-modal').classList.remove('open'); }
+
+function drawCandles(bars, trade) {
+  const svg = $('#tcm-svg');
+  svg.innerHTML = '';
+  const H = 300;
+  const barW = 4;
+  const W = Math.max(400, bars.length * barW);
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('width', W);
+
+  let min = Infinity, max = -Infinity;
+  for (const b of bars) { if (b.l < min) min = b.l; if (b.h > max) max = b.h; }
+  if (trade.entry != null) { min = Math.min(min, trade.entry); max = Math.max(max, trade.entry); }
+  if (trade.exit != null) { min = Math.min(min, trade.exit); max = Math.max(max, trade.exit); }
+  const span = (max - min) || 1;
+  const pad = span * 0.08;
+  min -= pad; max += pad;
+  const yAt = (v) => 10 + (1 - (v - min) / (max - min + pad * 2)) * (H - 20);
+
+  const ns = 'http://www.w3.org/2000/svg';
+  let entryIdx = -1, exitIdx = -1;
+  bars.forEach((b, i) => {
+    if (entryIdx === -1 && trade.openTime && b.time >= trade.openTime) entryIdx = i;
+    if (exitIdx === -1 && trade.closeTime && b.time >= trade.closeTime) exitIdx = i;
+  });
+
+  bars.forEach((b, i) => {
+    const x = i * barW;
+    const up = b.c >= b.o;
+    const color = up ? '#26c96a' : '#a855f7';
+    const wick = document.createElementNS(ns, 'line');
+    wick.setAttribute('x1', x + barW / 2); wick.setAttribute('x2', x + barW / 2);
+    wick.setAttribute('y1', yAt(b.h)); wick.setAttribute('y2', yAt(b.l));
+    wick.setAttribute('stroke', color); wick.setAttribute('stroke-width', '1');
+    svg.appendChild(wick);
+    const bodyTop = yAt(Math.max(b.o, b.c)), bodyBot = yAt(Math.min(b.o, b.c));
+    const rect = document.createElementNS(ns, 'rect');
+    rect.setAttribute('x', x + 0.5); rect.setAttribute('width', barW - 1);
+    rect.setAttribute('y', bodyTop); rect.setAttribute('height', Math.max(1, bodyBot - bodyTop));
+    rect.setAttribute('fill', color);
+    svg.appendChild(rect);
+  });
+
+  // Entry / exit dashed reference lines + markers
+  if (trade.entry != null) {
+    const y = yAt(trade.entry);
+    const line = document.createElementNS(ns, 'line');
+    line.setAttribute('x1', 0); line.setAttribute('x2', W); line.setAttribute('y1', y); line.setAttribute('y2', y);
+    line.setAttribute('stroke', '#a855f7'); line.setAttribute('stroke-width', '1'); line.setAttribute('stroke-dasharray', '4 3');
+    svg.appendChild(line);
+    if (entryIdx >= 0) {
+      const dot = document.createElementNS(ns, 'circle');
+      dot.setAttribute('cx', entryIdx * barW + barW / 2); dot.setAttribute('cy', y); dot.setAttribute('r', '3');
+      dot.setAttribute('fill', '#a855f7');
+      svg.appendChild(dot);
+    }
   }
+  if (trade.exit != null) {
+    const y = yAt(trade.exit);
+    const line = document.createElementNS(ns, 'line');
+    line.setAttribute('x1', 0); line.setAttribute('x2', W); line.setAttribute('y1', y); line.setAttribute('y2', y);
+    line.setAttribute('stroke', '#26c96a'); line.setAttribute('stroke-width', '1'); line.setAttribute('stroke-dasharray', '4 3');
+    svg.appendChild(line);
+    if (exitIdx >= 0) {
+      const dot = document.createElementNS(ns, 'circle');
+      dot.setAttribute('cx', exitIdx * barW + barW / 2); dot.setAttribute('cy', y); dot.setAttribute('r', '3');
+      dot.setAttribute('fill', '#26c96a');
+      svg.appendChild(dot);
+    }
+  }
+
+  const scroller = $('#tcm-scroll');
+  const targetIdx = entryIdx >= 0 ? entryIdx : Math.floor(bars.length / 2);
+  requestAnimationFrame(() => {
+    scroller.scrollLeft = Math.max(0, targetIdx * barW - scroller.clientWidth / 2);
+  });
 }
 
 // ── Render: Chart tab (per-trade bar chart + MAE/MFE wick) ─────────
@@ -779,6 +931,8 @@ function init() {
   document.querySelectorAll('.tab-btn').forEach((btn) => {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
+
+  $('#tcm-close').addEventListener('click', closeTradeChart);
 
   document.querySelectorAll('.eq-toggle-btn').forEach((btn) => {
     btn.addEventListener('click', () => {

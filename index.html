@@ -407,6 +407,7 @@
     <div id="account-panel">
       <div class="stat"><div class="stat-label">Balance</div><div class="stat-value" id="stat-balance">—</div></div>
       <div class="stat"><div class="stat-label">Equity</div><div class="stat-value" id="stat-equity">—</div></div>
+      <div class="stat"><div class="stat-label">Return</div><div class="stat-value" id="stat-return">—</div></div>
     </div>
 
     <div id="tab-content">
@@ -723,6 +724,14 @@ function renderSummary(scoped, data) {
     $('#account-panel').style.display = 'flex';
     $('#stat-balance').textContent = money(data.account.balance);
     $('#stat-equity').textContent = money(data.account.equity);
+    const retEl = $('#stat-return');
+    if (typeof data.account.equity === 'number' && ACCOUNT_STARTING_BALANCE) {
+      const pct = ((data.account.equity - ACCOUNT_STARTING_BALANCE) / ACCOUNT_STARTING_BALANCE) * 100;
+      retEl.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
+      retEl.className = 'stat-value ' + (pct >= 0 ? 'pos' : 'neg');
+    } else {
+      retEl.textContent = '—';
+    }
   } else {
     $('#account-panel').style.display = 'none';
   }
@@ -1995,6 +2004,11 @@ function renderCalendar(data) {
 }
 
 // ── Range scoping — mirrors desktop's quick-range buttons ──────────
+// Real account figures (mobile-only — not synced from desktop, entered
+// directly): balance £70,000 at account inception, midnight 15 Jun 2026.
+const ACCOUNT_STARTING_BALANCE = 70000;
+const ACCOUNT_START_DATE = new Date(2026, 5, 15, 0, 0, 0); // month is 0-indexed: 5 = June
+
 let selectedRange = '1m';
 let lastScoped = null;
 let customFrom = null, customTo = null; // set by dragging the brush slider
@@ -2006,7 +2020,7 @@ function rangeFromFor(key, now) {
   if (key === '2w') { const dw = (now.getDay() + 6) % 7; return startOf(new Date(now - (dw + 7) * 86400000)); }
   if (key === '1m') return startOf(new Date(now.getFullYear(), now.getMonth() - 1, now.getDate()));
   if (key === '3m') return startOf(new Date(now.getFullYear(), now.getMonth() - 3, now.getDate()));
-  return null; // 'all'
+  return ACCOUNT_START_DATE; // 'all' — anchored to when the account actually started, not "whatever's synced"
 }
 
 function sideStatsClient(trades) {

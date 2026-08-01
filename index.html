@@ -137,7 +137,10 @@
   .jr-row { display: grid; grid-template-columns: 74px 1fr; padding: 7px 16px; font-size: 12px; border-bottom: 1px solid #1c1c1f; align-items: center; }
   .jr-time { color: var(--text-dim); font-variant-numeric: tabular-nums; font-size: 10.5px; line-height: 1.5; }
   .jr-time .close { color: #b8b8c0; }
-  .jr-event { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+  .jr-event { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .jr-event-main { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+  .jr-prices { font-size: 9.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+  .jr-prices .arrow { opacity: 0.5; margin: 0 2px; }
   .jr-side { font-weight: 800; font-size: 10.5px; letter-spacing: 0.4px; flex-shrink: 0; width: 30px; }
   .jr-side.buy { color: var(--green-bright); }
   .jr-side.sell { color: var(--sell); }
@@ -666,7 +669,7 @@
       <div id="tcm-legend">
         <span><i class="lg-dot" style="background:#a855f7"></i>Entry</span>
         <span><i class="lg-dot" style="background:#26c96a"></i>Exit</span>
-        <span class="tcm-hint">drag to scroll · pinch not supported, use two-finger scroll</span>
+        <span class="tcm-hint">drag chart to scroll · swipe title bar for next/prev trade</span>
       </div>
       <div id="tcm-chart-wrap">
         <div class="eq-scroll" id="tcm-scroll">
@@ -900,13 +903,16 @@ function renderTrades(scopedTrades, dayCount) {
     row.innerHTML = `
       <span class="jr-time">${t.openTime ? t.openTime + '<br><span class="close">' + t.closeTime + '</span>' : (t.closeTime || '')}</span>
       <span class="jr-event">
-        <span class="jr-side ${side === 'BUY' ? 'buy' : 'sell'}">${side || '—'}</span>
-        ${t.lots != null ? `<span class="jr-lots">${t.lots}L</span>` : ''}
-        <span class="jr-fill"></span>
-        <span class="jr-pnl ${posNeg(t.pnl)}">${money(t.pnl, true)}</span>
-        ${t.setup ? `<span class="jr-setup-badge setup-${setupColorKey(t.setup)}">${t.setup}</span>` : ''}
+        <span class="jr-event-main">
+          <span class="jr-side ${side === 'BUY' ? 'buy' : 'sell'}">${side || '—'}</span>
+          ${t.lots != null ? `<span class="jr-lots">${t.lots}L</span>` : ''}
+          <span class="jr-fill"></span>
+          <span class="jr-pnl ${posNeg(t.pnl)}">${money(t.pnl, true)}</span>
+          ${t.setup ? `<span class="jr-setup-badge setup-${setupColorKey(t.setup)}">${t.setup}</span>` : ''}
+        </span>
+        ${t.entry != null && t.exit != null ? `<span class="jr-prices">${t.entry}<span class="arrow">→</span>${t.exit}</span>` : ''}
       </span>`;
-    row.addEventListener('click', () => openTradeChart(t));
+    row.addEventListener('click', () => openTradeChart(t, trades, idx));
     list.appendChild(row);
   });
 }
@@ -985,20 +991,24 @@ function openDayDetail(dateStr) {
 
   const list = $('#dd-trade-list');
   list.innerHTML = '';
-  dayTrades.slice().reverse().forEach((t) => {
+  const ddList = dayTrades.slice().reverse();
+  ddList.forEach((t, idx) => {
     const side = (t.type || '').toUpperCase();
     const row = document.createElement('div');
     row.className = 'jr-row tappable';
     row.innerHTML = `
       <span class="jr-time">${t.openTime ? t.openTime + '<br><span class="close">' + t.closeTime + '</span>' : (t.closeTime || '')}</span>
       <span class="jr-event">
-        <span class="jr-side ${side === 'BUY' ? 'buy' : 'sell'}">${side || '—'}</span>
-        ${t.lots != null ? `<span class="jr-lots">${t.lots}L</span>` : ''}
-        <span class="jr-fill"></span>
-        <span class="jr-pnl ${posNeg(t.pnl)}">${money(t.pnl, true)}</span>
-        ${t.setup ? `<span class="jr-setup-badge setup-${setupColorKey(t.setup)}">${t.setup}</span>` : ''}
+        <span class="jr-event-main">
+          <span class="jr-side ${side === 'BUY' ? 'buy' : 'sell'}">${side || '—'}</span>
+          ${t.lots != null ? `<span class="jr-lots">${t.lots}L</span>` : ''}
+          <span class="jr-fill"></span>
+          <span class="jr-pnl ${posNeg(t.pnl)}">${money(t.pnl, true)}</span>
+          ${t.setup ? `<span class="jr-setup-badge setup-${setupColorKey(t.setup)}">${t.setup}</span>` : ''}
+        </span>
+        ${t.entry != null && t.exit != null ? `<span class="jr-prices">${t.entry}<span class="arrow">→</span>${t.exit}</span>` : ''}
       </span>`;
-    row.addEventListener('click', () => openTradeChart(t));
+    row.addEventListener('click', () => openTradeChart(t, ddList, idx));
     list.appendChild(row);
   });
 
@@ -1006,11 +1016,14 @@ function openDayDetail(dateStr) {
 }
 function closeDayDetail() { closeModalByX('day-detail'); }
 
-function openTradeChart(t) {
+let tcmTradeList = [];
+let tcmTradeIndex = -1;
+
+function renderTradeChartContent(t) {
   const side = (t.type || '').toUpperCase();
   const sideClass = side === 'BUY' ? 'buy' : 'sell';
-  $('#tcm-title').innerHTML = `<span class="${sideClass}">${side}</span> · ${t.closeDate} ${t.openTime || ''} → ${t.closeTime} · Entry ${t.entry ?? '—'} → Exit ${t.exit ?? '—'} · <span class="${posNeg(t.pnl)}">${money(t.pnl, true)}</span>`;
-  openModal('trade-chart');
+  const navHint = tcmTradeList.length > 1 ? ` · trade ${tcmTradeIndex + 1}/${tcmTradeList.length}` : '';
+  $('#tcm-title').innerHTML = `<span class="${sideClass}">${side}</span> · ${t.closeDate} ${t.openTime || ''} → ${t.closeTime} · Entry ${t.entry ?? '—'} → Exit ${t.exit ?? '—'} · <span class="${posNeg(t.pnl)}">${money(t.pnl, true)}</span>${navHint}`;
 
   const bars = t.candles ? [
     ...parseBars(t.candles.before),
@@ -1030,7 +1043,24 @@ function openTradeChart(t) {
   $('#tcm-empty').style.display = 'none';
   drawCandles(bars, t);
 }
+
+function openTradeChart(t, list, idx) {
+  tcmTradeList = list || [t];
+  tcmTradeIndex = idx != null ? idx : 0;
+  renderTradeChartContent(t);
+  openModal('trade-chart');
+}
 function closeTradeChart() { closeModalByX('trade-chart'); }
+
+// Swipe left/right on the chart to jump to the next/previous trade in
+// whichever list this modal was opened from — same content update, no
+// extra history entry pushed (the modal itself is already open).
+function navigateTrade(delta) {
+  const newIdx = tcmTradeIndex + delta;
+  if (newIdx < 0 || newIdx >= tcmTradeList.length) return;
+  tcmTradeIndex = newIdx;
+  renderTradeChartContent(tcmTradeList[newIdx]);
+}
 
 function drawCandles(bars, trade) {
   const svg = $('#tcm-svg');
@@ -2606,6 +2636,27 @@ function init() {
   });
 
   $('#tcm-close').addEventListener('click', closeTradeChart);
+
+  // Swipe left/right on the chart head (not the scrollable candle area
+  // itself, to avoid conflicting with horizontal pan) to jump trades.
+  (function attachTradeSwipe() {
+    const head = $('#tcm-head');
+    let startX = 0, startY = 0, dragging = false;
+    head.addEventListener('touchstart', (evt) => {
+      if (!evt.touches.length) return;
+      startX = evt.touches[0].clientX; startY = evt.touches[0].clientY; dragging = true;
+    }, { passive: true });
+    head.addEventListener('touchend', (evt) => {
+      if (!dragging) return;
+      dragging = false;
+      const touch = evt.changedTouches[0];
+      if (!touch) return;
+      const dx = touch.clientX - startX, dy = touch.clientY - startY;
+      if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        navigateTrade(dx < 0 ? 1 : -1);
+      }
+    });
+  })();
   initYearSlider();
 
   function shiftRangeDay(deltaDays) {

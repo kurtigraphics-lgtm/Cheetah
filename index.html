@@ -301,7 +301,7 @@
       </div>
     </div>
     <div class="summary-panel">
-      <div class="stat-label">Net P&amp;L (This Week)</div>
+      <div class="stat-label" id="stat-net-label">Net P&amp;L</div>
       <div id="stat-net" class="flat">—</div>
       <div id="stat-net-sub"></div>
       <div class="stat-row">
@@ -540,6 +540,9 @@ function setStatus(kind, text) { const el = $('#sync-status'); el.textContent = 
 
 // ── Render: top summary bar + account ──────────────────────────────
 function renderSummary(scoped, data) {
+  const RANGE_NAMES = { today: 'Today', '1w': '1W', '2w': '2W', '1m': '1M', '3m': '3M', all: 'All', custom: 'Custom' };
+  $('#stat-net-label').textContent = `Net P&L (${RANGE_NAMES[selectedRange] || selectedRange})`;
+
   const netEl = $('#stat-net');
   netEl.textContent = money(scoped.netPnl, true);
   netEl.className = posNeg(scoped.netPnl);
@@ -1232,6 +1235,15 @@ function initYearSlider() {
   // handle doesn't drop the drag.
   trackWrapEl.addEventListener('pointerdown', (evt) => {
     trackWrapEl.setPointerCapture(evt.pointerId);
+    // Seed both bounds from whatever's currently active BEFORE dragging —
+    // otherwise dragging just one handle leaves the other at null, and
+    // computeScoped's `customFrom && customTo` check fails, silently
+    // falling through to the "All" range (the "shows entire P&L" bug).
+    if (!customFrom || !customTo) {
+      const scoped = lastScoped;
+      customFrom = customFrom || (scoped && scoped.from) || yrStart;
+      customTo = customTo || (scoped && scoped.to) || yrEnd;
+    }
     const rect = trackWrapEl.getBoundingClientRect();
     const x = evt.clientX - rect.left;
     const fromX = (parseFloat(thumbFrom.style.left) / 100) * rect.width;

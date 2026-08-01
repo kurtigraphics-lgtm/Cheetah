@@ -77,8 +77,8 @@
   #yr-slider-wrap { margin-top: 10px; padding: 0 2px; }
   #yr-slider-label { font-size: 10.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; margin-bottom: 10px; }
   #yr-track-wrap { position: relative; height: 28px; margin: 0 6px; touch-action: none; }
-  #yr-track { position: absolute; top: 50%; left: 0; right: 0; height: 3px; transform: translateY(-50%); background: var(--border); border-radius: 2px; }
-  #yr-fill { position: absolute; top: 50%; height: 3px; transform: translateY(-50%); background: var(--gold); border-radius: 2px; pointer-events: none; }
+  #yr-track { position: absolute; top: 50%; left: 0; right: 0; height: 3px; transform: translateY(-50%); background: rgba(212,175,55,0.28); border-radius: 2px; }
+  #yr-fill { position: absolute; top: 50%; height: 3px; transform: translateY(-50%); background: #f0c34e; box-shadow: 0 0 6px rgba(240,195,78,0.5); border-radius: 2px; pointer-events: none; }
   #yr-dots { position: absolute; inset: 0; pointer-events: none; }
   .yr-dot { position: absolute; top: 50%; width: 5px; height: 5px; border-radius: 50%; background: #55555c; transform: translate(-50%, -50%); }
   .yr-thumb { position: absolute; top: 50%; width: 16px; height: 16px; border-radius: 50%; transform: translate(-50%, -50%); background: var(--gold); border: 2px solid var(--bg); box-shadow: 0 0 0 1px rgba(0,0,0,0.4); z-index: 2; }
@@ -1124,22 +1124,25 @@ function initYearSlider() {
     return Math.min(100, Math.max(0, ((clientX - rect.left) / rect.width) * 100));
   }
 
-  function startDrag(which) {
-    return (evt) => {
-      evt.preventDefault();
-      yrDrag = which;
-      (which === 'from' ? thumbFrom : thumbTo).classList.add('yr-thumb-active');
-      tooltip.style.display = 'block';
-      moveDrag(evt);
-    };
+  // Cheap during-drag update: just the summary numbers, not the whole
+  // trades/chart/equity/report/calendar rebuild — that full rebuild is
+  // heavy enough on mobile to stall touch tracking mid-drag, which is
+  // why dragging looked broken. The full rebuild still happens on release.
+  function liveUpdateSummary() {
+    if (!currentData) return;
+    const scoped = computeScoped(currentData, 'custom');
+    lastScoped = scoped;
+    renderSummary(scoped, currentData);
+    updateRangeLabel(scoped);
   }
+
   function moveDrag(evt) {
     if (!yrDrag) return;
+    if (evt.cancelable) evt.preventDefault();
     const pct = pctFromEvent(evt);
     const d = yrDateForPct(pct);
-    const scoped = lastScoped;
-    const curFrom = customFrom || (scoped && scoped.from) || yrStart;
-    const curTo = customTo || (scoped && scoped.to) || yrEnd;
+    const curFrom = customFrom || yrStart;
+    const curTo = customTo || yrEnd;
     if (yrDrag === 'from') {
       d.setHours(0, 0, 0, 0);
       if (d > curTo) return;
@@ -1159,7 +1162,7 @@ function initYearSlider() {
 
     if (!yrLiveQueued) {
       yrLiveQueued = true;
-      requestAnimationFrame(() => { yrLiveQueued = false; renderAll(); });
+      requestAnimationFrame(() => { yrLiveQueued = false; liveUpdateSummary(); });
     }
   }
   function endDrag() {
@@ -1171,14 +1174,25 @@ function initYearSlider() {
     renderAll();
   }
 
-  thumbFrom.addEventListener('pointerdown', (e) => { thumbFrom.setPointerCapture(e.pointerId); startDrag('from')(e); });
-  thumbTo.addEventListener('pointerdown', (e) => { thumbTo.setPointerCapture(e.pointerId); startDrag('to')(e); });
-  thumbFrom.addEventListener('pointermove', moveDrag);
-  thumbTo.addEventListener('pointermove', moveDrag);
-  thumbFrom.addEventListener('pointerup', endDrag);
-  thumbTo.addEventListener('pointerup', endDrag);
-  thumbFrom.addEventListener('pointercancel', endDrag);
-  thumbTo.addEventListener('pointercancel', endDrag);
+  // Pointer handling lives on the whole track (not the tiny 16px thumb
+  // circles) so a touch anywhere near a handle reliably starts the drag,
+  // with capture on the track itself so fast finger movement off the
+  // handle doesn't drop the drag.
+  trackWrapEl.addEventListener('pointerdown', (evt) => {
+    trackWrapEl.setPointerCapture(evt.pointerId);
+    const rect = trackWrapEl.getBoundingClientRect();
+    const x = evt.clientX - rect.left;
+    const fromX = (parseFloat(thumbFrom.style.left) / 100) * rect.width;
+    const toX = (parseFloat(thumbTo.style.left) / 100) * rect.width;
+    const which = Math.abs(x - fromX) <= Math.abs(x - toX) ? 'from' : 'to';
+    yrDrag = which;
+    (which === 'from' ? thumbFrom : thumbTo).classList.add('yr-thumb-active');
+    tooltip.style.display = 'block';
+    moveDrag(evt);
+  });
+  trackWrapEl.addEventListener('pointermove', moveDrag);
+  trackWrapEl.addEventListener('pointerup', endDrag);
+  trackWrapEl.addEventListener('pointercancel', endDrag);
 
   syncPositions();
 }

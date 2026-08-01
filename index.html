@@ -74,8 +74,18 @@
     padding: 5px 12px; border-radius: 3px; font-size: 11px; font-weight: 700; cursor: pointer; font-family: inherit;
   }
   .range-chip.active { background: #16281f; color: var(--green-bright); border-color: var(--green); }
-  #brush-wrap { margin-top: 10px; touch-action: none; }
-  #brush-svg { width: 100%; height: 36px; display: block; }
+  #yr-slider-wrap { margin-top: 10px; padding: 0 2px; }
+  #yr-slider-label { font-size: 10.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; margin-bottom: 10px; }
+  #yr-track-wrap { position: relative; height: 28px; margin: 0 6px; touch-action: none; }
+  #yr-track { position: absolute; top: 50%; left: 0; right: 0; height: 3px; transform: translateY(-50%); background: var(--border); border-radius: 2px; }
+  #yr-fill { position: absolute; top: 50%; height: 3px; transform: translateY(-50%); background: var(--gold); border-radius: 2px; pointer-events: none; }
+  #yr-dots { position: absolute; inset: 0; pointer-events: none; }
+  .yr-dot { position: absolute; top: 50%; width: 5px; height: 5px; border-radius: 50%; background: #55555c; transform: translate(-50%, -50%); }
+  .yr-thumb { position: absolute; top: 50%; width: 16px; height: 16px; border-radius: 50%; transform: translate(-50%, -50%); background: var(--gold); border: 2px solid var(--bg); box-shadow: 0 0 0 1px rgba(0,0,0,0.4); z-index: 2; }
+  .yr-thumb-active { box-shadow: 0 0 0 6px rgba(212,175,55,0.18); }
+  #yr-tooltip { position: absolute; display: none; top: -30px; transform: translateX(-50%); background: var(--panel-alt); border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; font-size: 11px; color: var(--text); white-space: nowrap; pointer-events: none; z-index: 3; font-variant-numeric: tabular-nums; }
+  #yr-months { position: relative; height: 14px; margin: 4px 6px 0; }
+  .yr-month-label { position: absolute; top: 0; transform: translateX(-50%); font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.3px; white-space: nowrap; }
 
   /* ── Persistent top summary bar ─────────────────────────────────── */
   .summary-panel { background: var(--panel); border-bottom: 1px solid var(--border); padding: 14px 16px; }
@@ -273,8 +283,17 @@
         <button class="range-chip" data-range="3m">3M</button>
         <button class="range-chip" data-range="all">All</button>
       </div>
-      <div id="brush-wrap">
-        <svg id="brush-svg" viewBox="0 0 400 36" preserveAspectRatio="none"></svg>
+      <div id="yr-slider-wrap">
+        <div id="yr-slider-label"></div>
+        <div id="yr-track-wrap">
+          <div id="yr-track"></div>
+          <div id="yr-fill"></div>
+          <div id="yr-dots"></div>
+          <div id="yr-thumb-from" class="yr-thumb yr-thumb-from"></div>
+          <div id="yr-thumb-to" class="yr-thumb yr-thumb-to"></div>
+          <div id="yr-tooltip" class="yr-tooltip"></div>
+        </div>
+        <div id="yr-months"></div>
       </div>
     </div>
     <div class="summary-panel">
@@ -1043,122 +1062,127 @@ function updateRangeLabel(scoped) {
 // backdrop, with a draggable window (two edge handles + a movable
 // middle) that sets a custom date range — same idea as desktop's
 // bottom overview strip.
-let brushDays = [];       // full-history daily P&L, chronological
-let brushStart = 0, brushEnd = 0; // indices into brushDays
-let brushDrag = null;     // 'left' | 'right' | 'move' | null
-let brushMoveOffset = 0;
+let yrSliderReady = false;
+let yrDrag = null; // 'from' | 'to' | null
+let yrLiveQueued = false;
 
-function idxToX(i) { return brushDays.length > 1 ? (i / (brushDays.length - 1)) * 400 : 200; }
-function xToIdx(x) { return brushDays.length > 1 ? Math.round((x / 400) * (brushDays.length - 1)) : 0; }
+// ── Year range slider — Jan 1 to Dec 31 tube with gold draggable
+// thumbs, mirroring the desktop app's slider exactly. ─────────────
+const YR_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const yrYear = new Date().getFullYear();
+const yrStart = new Date(yrYear, 0, 1);
+const yrEnd = new Date(yrYear, 11, 31, 23, 59, 59);
+const yrTotalMs = yrEnd - yrStart;
 
-function renderBrush(data) {
-  brushDays = data.dailyPnl || [];
-  const svg = $('#brush-svg');
-  svg.innerHTML = '';
-  if (brushDays.length < 2) { svg.style.display = 'none'; return; }
-  svg.style.display = 'block';
+function yrPctForDate(d) {
+  const clamped = Math.min(Math.max(d - yrStart, 0), yrTotalMs);
+  return (clamped / yrTotalMs) * 100;
+}
+function yrDateForPct(pct) {
+  return new Date(yrStart.getTime() + (pct / 100) * yrTotalMs);
+}
+function yrFmtDate(d) {
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
 
-  // Initialize the window to match whatever the current selectedRange
-  // resolves to, so the brush stays visually in sync with the chips
-  // until the person drags it themselves.
-  if (selectedRange !== 'custom') {
-    const scoped = lastScoped;
-    const fromDate = scoped && scoped.from ? scoped.from : new Date(brushDays[0].date);
-    let s = brushDays.findIndex((d) => new Date(d.date) >= fromDate);
-    brushStart = s < 0 ? 0 : s;
-    brushEnd = brushDays.length - 1;
+function initYearSlider() {
+  if (yrSliderReady) return;
+  yrSliderReady = true;
+  const dotsEl = $('#yr-dots'), monthsEl = $('#yr-months');
+  for (let m = 0; m < 12; m++) {
+    const pct = yrPctForDate(new Date(yrYear, m, 1));
+    const dot = document.createElement('div');
+    dot.className = 'yr-dot'; dot.style.left = pct + '%';
+    dotsEl.appendChild(dot);
+    const label = document.createElement('div');
+    label.className = 'yr-month-label'; label.style.left = pct + '%'; label.textContent = YR_MONTHS[m];
+    monthsEl.appendChild(label);
   }
 
-  const ns = 'http://www.w3.org/2000/svg';
-  const values = brushDays.reduce((acc, d) => { acc.push((acc[acc.length - 1] || 0) + d.pnl); return acc; }, []);
-  const min = Math.min(0, ...values), max = Math.max(0, ...values);
-  const span = (max - min) || 1;
-  const yAt = (v) => 3 + (1 - (v - min) / span) * 30;
+  const trackWrapEl = $('#yr-track-wrap');
+  const fillEl = $('#yr-fill');
+  const thumbFrom = $('#yr-thumb-from');
+  const thumbTo = $('#yr-thumb-to');
+  const tooltip = $('#yr-tooltip');
 
-  let path = `M 0 ${yAt(values[0])}`;
-  for (let i = 1; i < values.length; i++) path += ` L ${idxToX(i)} ${yAt(values[i])}`;
-  const line = document.createElementNS(ns, 'path');
-  line.setAttribute('d', path); line.setAttribute('fill', 'none');
-  line.setAttribute('stroke', '#4a4a52'); line.setAttribute('stroke-width', '1');
-  svg.appendChild(line);
+  function syncPositions() {
+    const scoped = lastScoped;
+    const from = (selectedRange === 'custom' && customFrom) ? customFrom : (scoped && scoped.from) || yrStart;
+    const to = (selectedRange === 'custom' && customTo) ? customTo : (scoped && scoped.to) || yrEnd;
+    const fromPct = yrPctForDate(from), toPct = yrPctForDate(to);
+    thumbFrom.style.left = fromPct + '%';
+    thumbTo.style.left = toPct + '%';
+    fillEl.style.left = fromPct + '%';
+    fillEl.style.width = Math.max(0, toPct - fromPct) + '%';
+    $('#yr-slider-label').textContent = `${yrFmtDate(from)}  →  ${yrFmtDate(to)}`;
+  }
+  yrSyncPositions = syncPositions;
 
-  const leftX = idxToX(brushStart), rightX = idxToX(brushEnd);
+  function pctFromEvent(evt) {
+    const rect = trackWrapEl.getBoundingClientRect();
+    const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+    return Math.min(100, Math.max(0, ((clientX - rect.left) / rect.width) * 100));
+  }
 
-  const dimLeft = document.createElementNS(ns, 'rect');
-  dimLeft.setAttribute('x', 0); dimLeft.setAttribute('y', 0); dimLeft.setAttribute('width', leftX); dimLeft.setAttribute('height', 36);
-  dimLeft.setAttribute('fill', 'rgba(0,0,0,0.55)');
-  svg.appendChild(dimLeft);
-  const dimRight = document.createElementNS(ns, 'rect');
-  dimRight.setAttribute('x', rightX); dimRight.setAttribute('y', 0); dimRight.setAttribute('width', 400 - rightX); dimRight.setAttribute('height', 36);
-  dimRight.setAttribute('fill', 'rgba(0,0,0,0.55)');
-  svg.appendChild(dimRight);
-
-  const win = document.createElementNS(ns, 'rect');
-  win.setAttribute('x', leftX); win.setAttribute('y', 0.5); win.setAttribute('width', Math.max(1, rightX - leftX)); win.setAttribute('height', 35);
-  win.setAttribute('fill', 'none'); win.setAttribute('stroke', '#34e187'); win.setAttribute('stroke-width', '1.5');
-  svg.appendChild(win);
-
-  [leftX, rightX].forEach((x) => {
-    const handle = document.createElementNS(ns, 'rect');
-    handle.setAttribute('x', x - 2); handle.setAttribute('y', 0); handle.setAttribute('width', 4); handle.setAttribute('height', 36);
-    handle.setAttribute('fill', '#34e187');
-    svg.appendChild(handle);
-  });
-}
-
-function brushSvgX(evt) {
-  const rect = $('#brush-svg').getBoundingClientRect();
-  return ((evt.clientX - rect.left) / rect.width) * 400;
-}
-
-function attachBrushDrag() {
-  const svg = $('#brush-svg');
-  svg.addEventListener('pointerdown', (evt) => {
-    svg.setPointerCapture(evt.pointerId);
-    const x = brushSvgX(evt);
-    const leftX = idxToX(brushStart), rightX = idxToX(brushEnd);
-    if (Math.abs(x - leftX) < 22) brushDrag = 'left';
-    else if (Math.abs(x - rightX) < 22) brushDrag = 'right';
-    else if (x > leftX && x < rightX) { brushDrag = 'move'; brushMoveOffset = xToIdx(x) - brushStart; }
-    else {
-      // Tap outside the window — start a fresh ~7-day selection there.
-      const idx = xToIdx(x);
-      brushStart = Math.max(0, idx - 3);
-      brushEnd = Math.min(brushDays.length - 1, idx + 3);
-      brushDrag = 'move'; brushMoveOffset = idx - brushStart;
-      selectedRange = 'custom';
-      document.querySelectorAll('.range-chip').forEach((b) => b.classList.remove('active'));
-      renderBrush(currentData);
+  function startDrag(which) {
+    return (evt) => {
+      evt.preventDefault();
+      yrDrag = which;
+      (which === 'from' ? thumbFrom : thumbTo).classList.add('yr-thumb-active');
+      tooltip.style.display = 'block';
+      moveDrag(evt);
+    };
+  }
+  function moveDrag(evt) {
+    if (!yrDrag) return;
+    const pct = pctFromEvent(evt);
+    const d = yrDateForPct(pct);
+    const scoped = lastScoped;
+    const curFrom = customFrom || (scoped && scoped.from) || yrStart;
+    const curTo = customTo || (scoped && scoped.to) || yrEnd;
+    if (yrDrag === 'from') {
+      d.setHours(0, 0, 0, 0);
+      if (d > curTo) return;
+      customFrom = d;
+    } else {
+      d.setHours(23, 59, 59, 0);
+      if (d < curFrom) return;
+      customTo = d;
     }
-  });
-  svg.addEventListener('pointermove', (evt) => {
-    if (!brushDrag) return;
-    const idx = xToIdx(brushSvgX(evt));
-    if (brushDrag === 'left') brushStart = Math.min(idx, brushEnd - 1 >= 0 ? brushEnd - 1 : 0);
-    else if (brushDrag === 'right') brushEnd = Math.max(idx, brushStart + 1);
-    else if (brushDrag === 'move') {
-      const width = brushEnd - brushStart;
-      let ns_ = idx - brushMoveOffset;
-      ns_ = Math.max(0, Math.min(brushDays.length - 1 - width, ns_));
-      brushStart = ns_; brushEnd = ns_ + width;
-    }
-    brushStart = Math.max(0, Math.min(brushStart, brushDays.length - 1));
-    brushEnd = Math.max(0, Math.min(brushEnd, brushDays.length - 1));
-    renderBrush(currentData);
-  });
-  const finish = () => {
-    if (!brushDrag) return;
-    brushDrag = null;
     selectedRange = 'custom';
     document.querySelectorAll('.range-chip').forEach((b) => b.classList.remove('active'));
-    const startDate = new Date(brushDays[brushStart].date); startDate.setHours(0, 0, 0, 0);
-    const endDate = new Date(brushDays[brushEnd].date); endDate.setHours(23, 59, 59, 999);
-    customFrom = startDate; customTo = endDate;
+    syncPositions();
+    const thumbRect = (yrDrag === 'from' ? thumbFrom : thumbTo).getBoundingClientRect();
+    const wrapRect = trackWrapEl.getBoundingClientRect();
+    tooltip.style.left = (thumbRect.left - wrapRect.left + thumbRect.width / 2) + 'px';
+    tooltip.textContent = yrFmtDate(d);
+
+    if (!yrLiveQueued) {
+      yrLiveQueued = true;
+      requestAnimationFrame(() => { yrLiveQueued = false; renderAll(); });
+    }
+  }
+  function endDrag() {
+    if (!yrDrag) return;
+    thumbFrom.classList.remove('yr-thumb-active');
+    thumbTo.classList.remove('yr-thumb-active');
+    tooltip.style.display = 'none';
+    yrDrag = null;
     renderAll();
-  };
-  svg.addEventListener('pointerup', finish);
-  svg.addEventListener('pointercancel', finish);
+  }
+
+  thumbFrom.addEventListener('pointerdown', (e) => { thumbFrom.setPointerCapture(e.pointerId); startDrag('from')(e); });
+  thumbTo.addEventListener('pointerdown', (e) => { thumbTo.setPointerCapture(e.pointerId); startDrag('to')(e); });
+  thumbFrom.addEventListener('pointermove', moveDrag);
+  thumbTo.addEventListener('pointermove', moveDrag);
+  thumbFrom.addEventListener('pointerup', endDrag);
+  thumbTo.addEventListener('pointerup', endDrag);
+  thumbFrom.addEventListener('pointercancel', endDrag);
+  thumbTo.addEventListener('pointercancel', endDrag);
+
+  syncPositions();
 }
+let yrSyncPositions = null;
 
 function render(data) {
   currentData = data;
@@ -1178,7 +1202,7 @@ function renderAll() {
   renderEquity(scoped);
   renderReport(scoped);
   renderCalendar(currentData); // calendar has its own month nav, not range-scoped
-  renderBrush(currentData);
+  if (yrSyncPositions) yrSyncPositions();
 }
 
 function switchTab(name) {
@@ -1214,7 +1238,7 @@ function init() {
   });
 
   $('#tcm-close').addEventListener('click', closeTradeChart);
-  attachBrushDrag();
+  initYearSlider();
 
   document.querySelectorAll('.eq-toggle-btn').forEach((btn) => {
     btn.addEventListener('click', () => {

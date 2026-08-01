@@ -1206,6 +1206,7 @@ function renderEquity(scoped) {
 
   const goal = buildGoalLine(view.trades || []);
   eqGoalRef = goal;
+  eqTradesRef = view.trades || [];
   $('#eq-goal-pace').textContent = money(goal.goalFinal, true);
   const gap = values[values.length - 1] - goal.goalFinal;
   const gapEl = $('#eq-goal-gap');
@@ -1233,6 +1234,7 @@ function buildDrawdownCurve(curve) {
 // full view. No native scroll container involved — the SVG is a fixed
 // 400x220 viewBox and we redraw whichever window of points is visible.
 let eqCurveRef = [];
+let eqTradesRef = []; // trades aligned 1:1 with eqCurveRef, needed to rebuild the goal line per-window
 let eqTotalLen = 0; // curve.length, or more when the goal projection extends into the future (Free mode)
 let eqVisibleCount = 0;
 let eqPanStart = 0; // index of the leftmost visible point (float)
@@ -1283,10 +1285,21 @@ function drawEquityCumulative(curve, keepView) {
   yaxis.innerHTML = '';
 
   // ── Top region: Equity (+ Goal, optionally projected into the future) ──
+  // Both the equity line and the goal line rebase to whatever window is
+  // currently visible — same as desktop: panning/zooming recomputes the
+  // goal line fresh from just the visible trades, so dragging the brush's
+  // start point genuinely shifts where the goal line begins.
+  const baseValue = startIdx > 0 && curve[startIdx - 1] ? curve[startIdx - 1].cumulative : 0;
+  const windowGoal = eqShowGoal
+    ? buildGoalLine(eqTradesRef.slice(startIdx, realEndIdx + 1))
+    : { goalValAt: () => 0 };
+
   if (topActive) {
-    const values = slice.map((p) => p.cumulative);
+    const values = slice.map((p) => p.cumulative - baseValue);
     // Sample the goal line across the FULL visible window, which may
-    // extend past the real data into projected future territory.
+    // extend past the real data into projected future territory —
+    // localIdx converts global curve indices to the window-goal's own
+    // local index space (0 at the window's start).
     const GOAL_SAMPLES = 60;
     const goalSampleIdx = [];
     if (showGoal) {
@@ -1294,7 +1307,7 @@ function drawEquityCumulative(curve, keepView) {
         goalSampleIdx.push(startIdx + (i / GOAL_SAMPLES) * (endIdxRaw - startIdx));
       }
     }
-    const goalSampleVals = showGoal ? goalSampleIdx.map((idx) => eqGoalRef.goalValAt(idx)) : [];
+    const goalSampleVals = showGoal ? goalSampleIdx.map((idx) => windowGoal.goalValAt(idx - startIdx)) : [];
     const domainVals = (eqShowEquity ? values : []).concat(showGoal ? goalSampleVals : []);
     if (!domainVals.length) domainVals.push(0);
     const min = Math.min(0, ...domainVals), max = Math.max(0, ...domainVals);
@@ -1361,7 +1374,7 @@ function drawEquityCumulative(curve, keepView) {
           const mK = countWeekdaysAfter(eqGoalRef.lastTradeDateStr, date);
           const mIdx = (curve.length - 1) + mK * eqGoalRef.avgTPDFull;
           if (mIdx < startIdx || mIdx > endIdxRaw) return;
-          const mx = xAtIdx(mIdx), my = yAt(eqGoalRef.goalValAt(mIdx));
+          const mx = xAtIdx(mIdx), my = yAt(windowGoal.goalValAt(mIdx - startIdx));
           const mtw = label.length * 5.6 + 16;
           const mbx = Math.max(2, Math.min(mx - mtw / 2, W - mtw - 2));
           const mby = Math.max(topY0 + 2, my - 26);
@@ -1469,7 +1482,7 @@ function drawEquityCumulative(curve, keepView) {
     }
   }
 
-  const values = slice.map((p) => p.cumulative);
+  const values = slice.map((p) => p.cumulative - baseValue);
   const first = slice[0], last = slice[slice.length - 1];
   const zoomedTag = eqVisibleCount < eqTotalLen ? ' · pinch out or double-tap to reset' : '';
   $('#equity-caption').textContent = first && last
@@ -1487,8 +1500,8 @@ function drawEquityCumulative(curve, keepView) {
     ddEl.textContent = money(localWorst); ddEl.className = 'eq-stat-v neg';
     $('#eq-trades').textContent = slice.length;
   }
-  if (eqShowGoal && eqGoalRef) {
-    const goalVal = eqGoalRef.goalValAt(realEndIdx);
+  if (eqShowGoal) {
+    const goalVal = windowGoal.goalValAt(realEndIdx - startIdx);
     $('#eq-goal-pace').textContent = money(goalVal, true);
     const gap = (values.length ? values[values.length - 1] : 0) - goalVal;
     const gapEl = $('#eq-goal-gap');
@@ -1518,7 +1531,10 @@ function renderEqBrush() {
   const ns = 'http://www.w3.org/2000/svg';
 
   const values = curve.map((p) => p.cumulative);
-  const min = Math.min(0, ...values), max = Math.max(0, ...values);
+  const globalGoal = eqShowGoal ? eqGoalRef : null;
+  const goalSampled = globalGoal ? curve.map((_, i) => globalGoal.goalValAt(i)) : [];
+  const domainVals = values.concat(goalSampled.length ? goalSampled : []);
+  const min = Math.min(0, ...domainVals), max = Math.max(0, ...domainVals);
   const span = (max - min) || 1;
   const yAt = (v) => 3 + (1 - (v - min) / span) * (H - 6);
   // Sparkline only covers real data, scaled against the (possibly larger)
@@ -1530,18 +1546,28 @@ function renderEqBrush() {
   for (let i = 1; i < values.length; i++) path += ` L ${xAt(i)} ${yAt(values[i])}`;
   const line = document.createElementNS(ns, 'path');
   line.setAttribute('d', path); line.setAttribute('fill', 'none');
-  line.setAttribute('stroke', '#6b6b74'); line.setAttribute('stroke-width', '1');
+  line.setAttribute('stroke', '#8a8a92'); line.setAttribute('stroke-width', '1');
   svg.appendChild(line);
 
-  if (totalLen > curve.length) {
-    // Dashed marker showing where the future projection begins.
-    const futureLine = document.createElementNS(ns, 'line');
-    const fx = xAt(curve.length - 1);
-    futureLine.setAttribute('x1', fx); futureLine.setAttribute('x2', W);
-    futureLine.setAttribute('y1', yAt(values[values.length - 1])); futureLine.setAttribute('y2', yAt(values[values.length - 1]));
-    futureLine.setAttribute('stroke', '#ffd23c'); futureLine.setAttribute('stroke-width', '1');
-    futureLine.setAttribute('stroke-dasharray', '3 3'); futureLine.setAttribute('opacity', '0.6');
-    svg.appendChild(futureLine);
+  // Full gold goal-line trace across the whole strip — this is the
+  // UNREBASED, whole-account overview trend (unlike the main chart above,
+  // which rebases to whichever window is currently selected), giving a
+  // constant reference line to drag the window against.
+  if (globalGoal) {
+    let goalPath = `M ${xAt(0)} ${yAt(goalSampled[0])}`;
+    for (let i = 1; i < goalSampled.length; i++) goalPath += ` L ${xAt(i)} ${yAt(goalSampled[i])}`;
+    if (totalLen > curve.length) {
+      const SAMPLES = 20;
+      for (let s = 1; s <= SAMPLES; s++) {
+        const idx = curve.length - 1 + (s / SAMPLES) * (totalLen - curve.length);
+        goalPath += ` L ${xAt(idx)} ${yAt(globalGoal.goalValAt(idx))}`;
+      }
+    }
+    const goalLine = document.createElementNS(ns, 'path');
+    goalLine.setAttribute('d', goalPath); goalLine.setAttribute('fill', 'none');
+    goalLine.setAttribute('stroke', '#ffd23c'); goalLine.setAttribute('stroke-width', '1');
+    goalLine.setAttribute('stroke-dasharray', '3 3'); goalLine.setAttribute('opacity', '0.75');
+    svg.appendChild(goalLine);
   }
 
   const leftX = (eqPanStart / totalLen) * W;
@@ -1549,17 +1575,17 @@ function renderEqBrush() {
 
   const dimLeft = document.createElementNS(ns, 'rect');
   dimLeft.setAttribute('x', 0); dimLeft.setAttribute('y', 0); dimLeft.setAttribute('width', leftX); dimLeft.setAttribute('height', H);
-  dimLeft.setAttribute('fill', 'rgba(0,0,0,0.55)');
+  dimLeft.setAttribute('fill', 'rgba(0,0,0,0.6)');
   svg.appendChild(dimLeft);
   const dimRight = document.createElementNS(ns, 'rect');
   dimRight.setAttribute('x', rightX); dimRight.setAttribute('y', 0); dimRight.setAttribute('width', W - rightX); dimRight.setAttribute('height', H);
-  dimRight.setAttribute('fill', 'rgba(0,0,0,0.55)');
+  dimRight.setAttribute('fill', 'rgba(0,0,0,0.6)');
   svg.appendChild(dimRight);
 
   const win = document.createElementNS(ns, 'rect');
   win.setAttribute('x', leftX); win.setAttribute('y', 0.5);
   win.setAttribute('width', Math.max(1, rightX - leftX)); win.setAttribute('height', H - 1);
-  win.setAttribute('fill', 'none'); win.setAttribute('stroke', '#34e187');
+  win.setAttribute('fill', 'rgba(91,141,238,0.08)'); win.setAttribute('stroke', '#5b8dee');
   win.setAttribute('stroke-width', '1.5');
   svg.appendChild(win);
 
@@ -1567,7 +1593,7 @@ function renderEqBrush() {
     const handle = document.createElementNS(ns, 'rect');
     handle.setAttribute('x', edgeX - 2); handle.setAttribute('y', 0);
     handle.setAttribute('width', 4); handle.setAttribute('height', H);
-    handle.setAttribute('fill', '#34e187');
+    handle.setAttribute('fill', '#5b8dee');
     svg.appendChild(handle);
   });
 

@@ -192,11 +192,11 @@
 
   <div id="dash">
     <div class="summary-panel">
-      <div class="stat-label">Net P&amp;L (All-Time)</div>
+      <div class="stat-label">Net P&amp;L (This Week)</div>
       <div id="stat-net" class="flat">—</div>
       <div id="stat-net-sub"></div>
       <div class="stat-row">
-        <div class="stat"><div class="stat-label">Trades</div><div class="stat-value" id="stat-count">—</div></div>
+        <div class="stat"><div class="stat-label">Trades (Wk)</div><div class="stat-value" id="stat-count">—</div></div>
         <div class="stat"><div class="stat-label">Drawdown</div><div class="stat-value" id="stat-dd">—</div></div>
         <div class="stat"><div class="stat-label">Today</div><div class="stat-value" id="stat-today">—</div></div>
       </div>
@@ -387,12 +387,12 @@ function setStatus(kind, text) { const el = $('#sync-status'); el.textContent = 
 // ── Render: top summary bar + account ──────────────────────────────
 function renderSummary(data) {
   const netEl = $('#stat-net');
-  netEl.textContent = money(data.allTimePnl, true);
-  netEl.className = posNeg(data.allTimePnl);
-  const w = data.winCount ?? 0, l = data.lossCount ?? 0;
-  $('#stat-net-sub').innerHTML = `<span class="w">${w}W</span> / <span class="l">${l}L</span> (${data.winRate != null ? data.winRate + '%' : '—'})`;
+  netEl.textContent = money(data.weekPnl, true);
+  netEl.className = posNeg(data.weekPnl);
+  const w = data.weekWinCount ?? 0, l = data.weekLossCount ?? 0;
+  $('#stat-net-sub').innerHTML = `<span class="w">${w}W</span> / <span class="l">${l}L</span> (${data.weekWinRate != null ? data.weekWinRate + '%' : '—'})`;
 
-  $('#stat-count').textContent = data.tradeCount ?? '—';
+  $('#stat-count').textContent = data.weekTradeCount ?? '—';
   const ddEl = $('#stat-dd'); ddEl.textContent = money(data.maxDrawdown); ddEl.className = 'stat-value ' + (data.maxDrawdown < 0 ? 'neg' : '');
   const tEl = $('#stat-today'); tEl.textContent = money(data.todayPnl, true); tEl.className = 'stat-value ' + posNeg(data.todayPnl);
 

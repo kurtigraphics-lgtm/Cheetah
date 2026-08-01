@@ -2020,7 +2020,7 @@ function rangeFromFor(key, now) {
   if (key === '2w') { const dw = (now.getDay() + 6) % 7; return startOf(new Date(now - (dw + 7) * 86400000)); }
   if (key === '1m') return startOf(new Date(now.getFullYear(), now.getMonth() - 1, now.getDate()));
   if (key === '3m') return startOf(new Date(now.getFullYear(), now.getMonth() - 3, now.getDate()));
-  return ACCOUNT_START_DATE; // 'all' — anchored to when the account actually started, not "whatever's synced"
+  return null; // 'all' — truly unbounded, shows everything that's synced
 }
 
 function sideStatsClient(trades) {

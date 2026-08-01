@@ -1078,13 +1078,47 @@ let eqScope = 'free'; // 'free' = full account history, 'range' = respects the t
 // Independent overlay toggles, matching desktop's exact defaults
 // (renderer.js: `let eqShowEquity = true, eqShowDrawdown = false, eqShowGoal = true;`).
 let eqShowEquity = true, eqShowDrawdown = false, eqShowGoal = true;
-let eqGoalRef = null; // { goalPoints, goalFinal } for the currently rendered view
+let eqGoalRef = null; // { goalPoints, goalFinal, ... projection fields } for the currently rendered view
+
+// Same real date/values as renderer.js: the goal line projects forward
+// to this date (Free mode only, matching desktop exactly), and a
+// milestone marker is drawn on the goal line at this real calendar date.
+const GOAL_PROJ_END = '2027-12-31';
+const GOAL_MILESTONES = [{ date: '2027-02-01', label: 'Live FTMO account' }];
+
+// Count trading days (Mon–Fri) strictly after isoA, up to and including isoB.
+function countWeekdaysAfter(isoA, isoB) {
+  const a = new Date(isoA + 'T00:00:00'), b = new Date(isoB + 'T00:00:00');
+  if (b <= a) return 0;
+  let n = 0;
+  const d = new Date(a);
+  while (d < b) {
+    d.setDate(d.getDate() + 1);
+    const dow = d.getDay();
+    if (dow !== 0 && dow !== 6) n++;
+  }
+  return n;
+}
+
+// Advance an ISO date by n trading days (Mon–Fri), returning an ISO string.
+function addWeekdaysIso(iso, n) {
+  const d = new Date(iso + 'T00:00:00');
+  let left = Math.round(n);
+  while (left > 0) {
+    d.setDate(d.getDate() + 1);
+    const dow = d.getDay();
+    if (dow !== 0 && dow !== 6) left--;
+  }
+  return d.toISOString().slice(0, 10);
+}
 
 // Faithful port of the desktop equity chart's goal-pace formula (see
 // renderer.js "Goal pace: mirrors the cAlgo dashboard's target (2R avg
 // win @ 70% day win rate)") — not an invented number. Risk unit is this
 // view's average loss (a proxy for 1R, same as desktop since no account
-// balance/configured R is available here either).
+// balance/configured R is available here either). Also computes the same
+// weekday-based projection desktop uses to extend the goal line to end
+// of 2027.
 function buildGoalLine(trades) {
   const TARGET_RR = 2.0, TARGET_DAY_WR = 0.70;
   const lossTrades = trades.filter((t) => (t.pnl || 0) < 0);
@@ -1108,7 +1142,26 @@ function buildGoalLine(trades) {
   const dayPosEnd = dayPos.length ? Math.max(0.0001, dayPos[dayPos.length - 1]) : 0.0001;
   const goalPoints = dayPos.map((p) => (p / dayPosEnd) * perDayTarget * uniqueDays.length);
   const goalFinal = goalPoints.length ? goalPoints[goalPoints.length - 1] : 0;
-  return { goalPoints, goalFinal, perDayTarget, dayCount: uniqueDays.length };
+
+  const N = trades.length;
+  let lastTradeDateStr = null, avgTPDFull = 1, projDays = 0;
+  if (N > 0) {
+    lastTradeDateStr = trades[N - 1].closeDate;
+    avgTPDFull = Math.max(0.2, N / Math.max(1, uniqueDays.length));
+    projDays = countWeekdaysAfter(lastTradeDateStr, GOAL_PROJ_END);
+  }
+  const projUnits = projDays * avgTPDFull;
+
+  // Continuous goal value at any virtual index — discrete per-trade value
+  // up to the last real trade (N-1), then a straight-line continuation
+  // at perDayTarget/day beyond it, same as desktop.
+  function goalValAt(idx) {
+    if (!N) return 0;
+    if (idx <= N - 1) return goalPoints[Math.round(eqClamp(idx, 0, N - 1))];
+    return goalFinal + perDayTarget * ((idx - (N - 1)) / avgTPDFull);
+  }
+
+  return { goalPoints, goalFinal, perDayTarget, dayCount: uniqueDays.length, N, lastTradeDateStr, avgTPDFull, projDays, projUnits, goalValAt };
 }
 
 function renderEquity(scoped) {
@@ -1168,6 +1221,7 @@ function buildDrawdownCurve(curve) {
 // full view. No native scroll container involved — the SVG is a fixed
 // 400x220 viewBox and we redraw whichever window of points is visible.
 let eqCurveRef = [];
+let eqTotalLen = 0; // curve.length, or more when the goal projection extends into the future (Free mode)
 let eqVisibleCount = 0;
 let eqPanStart = 0; // index of the leftmost visible point (float)
 let eqGestureBound = false;
@@ -1176,12 +1230,18 @@ function eqClamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
 function drawEquityCumulative(curve, keepView) {
   eqCurveRef = curve;
+  const showGoal = eqShowGoal && eqGoalRef && eqGoalRef.N === curve.length;
+  // Projection into the future only applies in Free mode, exactly like
+  // desktop ("Only Free mode extends the domain to end of 2027").
+  const allowProjection = showGoal && eqScope === 'free';
+  eqTotalLen = curve.length + (allowProjection ? eqGoalRef.projUnits : 0);
+
   if (!keepView || !eqVisibleCount) {
     eqVisibleCount = curve.length;
     eqPanStart = 0;
   }
-  eqVisibleCount = eqClamp(eqVisibleCount, Math.min(3, curve.length), curve.length);
-  eqPanStart = eqClamp(eqPanStart, 0, Math.max(0, curve.length - eqVisibleCount));
+  eqVisibleCount = eqClamp(eqVisibleCount, Math.min(3, curve.length), eqTotalLen);
+  eqPanStart = eqClamp(eqPanStart, 0, Math.max(0, eqTotalLen - eqVisibleCount));
 
   const svg = $('#equity-svg');
   svg.innerHTML = '';
@@ -1190,10 +1250,11 @@ function drawEquityCumulative(curve, keepView) {
   svg.removeAttribute('width');
 
   const startIdx = Math.floor(eqPanStart);
-  const endIdx = Math.min(curve.length - 1, Math.ceil(eqPanStart + eqVisibleCount));
-  const slice = curve.slice(startIdx, endIdx + 1);
-  if (!slice.length) return;
-  const xAt = (i) => ((startIdx + i - eqPanStart) / eqVisibleCount) * W;
+  const endIdxRaw = Math.min(eqTotalLen - 1, Math.ceil(eqPanStart + eqVisibleCount));
+  const realEndIdx = Math.min(curve.length - 1, endIdxRaw);
+  const slice = realEndIdx >= startIdx ? curve.slice(startIdx, realEndIdx + 1) : [];
+  const xAtIdx = (idx) => ((idx - eqPanStart) / eqVisibleCount) * W;
+  const xAt = (i) => xAtIdx(startIdx + i);
   const ns = 'http://www.w3.org/2000/svg';
 
   const topActive = eqShowEquity || eqShowGoal;
@@ -1209,17 +1270,26 @@ function drawEquityCumulative(curve, keepView) {
   const yaxis = $('#eq-yaxis');
   yaxis.innerHTML = '';
 
-  // ── Top region: Equity (+ Goal) ──────────────────────────────────
+  // ── Top region: Equity (+ Goal, optionally projected into the future) ──
   if (topActive) {
     const values = slice.map((p) => p.cumulative);
-    const showGoal = eqShowGoal && eqGoalRef && eqGoalRef.goalPoints.length === curve.length;
-    const goalSlice = showGoal ? eqGoalRef.goalPoints.slice(startIdx, endIdx + 1) : null;
-    const domainVals = eqShowEquity ? (showGoal ? values.concat(goalSlice) : values) : goalSlice;
+    // Sample the goal line across the FULL visible window, which may
+    // extend past the real data into projected future territory.
+    const GOAL_SAMPLES = 60;
+    const goalSampleIdx = [];
+    if (showGoal) {
+      for (let i = 0; i <= GOAL_SAMPLES; i++) {
+        goalSampleIdx.push(startIdx + (i / GOAL_SAMPLES) * (endIdxRaw - startIdx));
+      }
+    }
+    const goalSampleVals = showGoal ? goalSampleIdx.map((idx) => eqGoalRef.goalValAt(idx)) : [];
+    const domainVals = (eqShowEquity ? values : []).concat(showGoal ? goalSampleVals : []);
+    if (!domainVals.length) domainVals.push(0);
     const min = Math.min(0, ...domainVals), max = Math.max(0, ...domainVals);
     const span = (max - min) || 1;
     const yAt = (v) => topY0 + (1 - (v - min) / span) * (topY1 - topY0);
 
-    if (eqShowEquity) {
+    if (eqShowEquity && slice.length) {
       let linePath = `M ${xAt(0)} ${yAt(values[0])}`;
       let areaPath = `M ${xAt(0)} ${yAt(0)} L ${xAt(0)} ${yAt(values[0])}`;
       for (let i = 1; i < slice.length; i++) {
@@ -1237,16 +1307,21 @@ function drawEquityCumulative(curve, keepView) {
     }
 
     if (showGoal) {
-      let goalPath = `M ${xAt(0)} ${yAt(goalSlice[0])}`;
-      for (let i = 1; i < goalSlice.length; i++) goalPath += ` L ${xAt(i)} ${yAt(goalSlice[i])}`;
+      let goalPath = `M ${xAtIdx(goalSampleIdx[0])} ${yAt(goalSampleVals[0])}`;
+      for (let i = 1; i < goalSampleIdx.length; i++) goalPath += ` L ${xAtIdx(goalSampleIdx[i])} ${yAt(goalSampleVals[i])}`;
       const goalLine = document.createElementNS(ns, 'path');
       goalLine.setAttribute('d', goalPath); goalLine.setAttribute('fill', 'none');
       goalLine.setAttribute('stroke', '#ffd23c'); goalLine.setAttribute('stroke-width', '1.5');
       goalLine.setAttribute('stroke-dasharray', '5 4'); goalLine.setAttribute('opacity', '0.85');
       svg.appendChild(goalLine);
 
-      const lx = xAt(goalSlice.length - 1), ly = yAt(goalSlice[goalSlice.length - 1]);
-      const lbl = money(goalSlice[goalSlice.length - 1], true);
+      // End-of-visible-window pill — shows "2027 · +£X" once the
+      // projection has actually reached the very end of 2027, same as
+      // desktop, otherwise just the value at the current right edge.
+      const lastVal = goalSampleVals[goalSampleVals.length - 1];
+      const atProjEnd = allowProjection && endIdxRaw >= curve.length - 1 + eqGoalRef.projUnits - 0.001;
+      const lx = xAtIdx(endIdxRaw), ly = yAt(lastVal);
+      const lbl = (atProjEnd ? '2027 · ' : '') + money(lastVal, true);
       const tw = lbl.length * 5.8 + 14;
       const bx = Math.max(2, Math.min(lx - tw - 6, W - tw - 2));
       const by = Math.max(topY0 + 2, Math.min(ly - 10, topY1 - 20));
@@ -1265,6 +1340,36 @@ function drawEquityCumulative(curve, keepView) {
       pillText.setAttribute('font-weight', '600'); pillText.setAttribute('fill', '#1a1a1e');
       pillText.textContent = lbl;
       svg.appendChild(pillText);
+
+      // Milestone marker(s) — real fixed calendar date(s), only drawn
+      // once the projection actually reaches that date's position.
+      if (allowProjection && eqGoalRef.lastTradeDateStr) {
+        GOAL_MILESTONES.forEach(({ date, label }) => {
+          if (date <= eqGoalRef.lastTradeDateStr) return;
+          const mK = countWeekdaysAfter(eqGoalRef.lastTradeDateStr, date);
+          const mIdx = (curve.length - 1) + mK * eqGoalRef.avgTPDFull;
+          if (mIdx < startIdx || mIdx > endIdxRaw) return;
+          const mx = xAtIdx(mIdx), my = yAt(eqGoalRef.goalValAt(mIdx));
+          const mtw = label.length * 5.6 + 16;
+          const mbx = Math.max(2, Math.min(mx - mtw / 2, W - mtw - 2));
+          const mby = Math.max(topY0 + 2, my - 26);
+          const mDot = document.createElementNS(ns, 'circle');
+          mDot.setAttribute('cx', mx); mDot.setAttribute('cy', my); mDot.setAttribute('r', '4');
+          mDot.setAttribute('fill', '#0d0d10'); mDot.setAttribute('stroke', '#ffd23c'); mDot.setAttribute('stroke-width', '2');
+          svg.appendChild(mDot);
+          const mRect = document.createElementNS(ns, 'rect');
+          mRect.setAttribute('x', mbx); mRect.setAttribute('y', mby);
+          mRect.setAttribute('width', mtw); mRect.setAttribute('height', 17);
+          mRect.setAttribute('rx', 8.5); mRect.setAttribute('fill', '#ffd23c'); mRect.setAttribute('opacity', '0.95');
+          svg.appendChild(mRect);
+          const mText = document.createElementNS(ns, 'text');
+          mText.setAttribute('x', mbx + mtw / 2); mText.setAttribute('y', mby + 12);
+          mText.setAttribute('text-anchor', 'middle'); mText.setAttribute('font-size', '9');
+          mText.setAttribute('font-weight', '600'); mText.setAttribute('fill', '#1a1a1e');
+          mText.textContent = label;
+          svg.appendChild(mText);
+        });
+      }
     }
 
     const zero = document.createElementNS(ns, 'line');
@@ -1287,8 +1392,8 @@ function drawEquityCumulative(curve, keepView) {
   }
 
   // ── Bottom region: Drawdown ──────────────────────────────────────
-  if (botActive) {
-    const ddSlice = buildDrawdownCurve(curve).slice(startIdx, endIdx + 1);
+  if (botActive && slice.length) {
+    const ddSlice = buildDrawdownCurve(curve).slice(startIdx, realEndIdx + 1);
     const ddValues = ddSlice.map((p) => p.cumulative);
     const min = Math.min(0, ...ddValues), max = 0;
     const span = (max - min) || 1;
@@ -1316,26 +1421,48 @@ function drawEquityCumulative(curve, keepView) {
     yaxis.appendChild(label);
   }
 
-  // X-axis: date labels at evenly-spaced points across whatever's
-  // currently visible — these live inside the SVG so they pan/zoom with
-  // the data, same as the Y-axis labels but on the time dimension.
-  const X_LABEL_COUNT = Math.min(5, slice.length);
-  for (let i = 0; i < X_LABEL_COUNT; i++) {
-    const idx = X_LABEL_COUNT > 1 ? Math.round((i / (X_LABEL_COUNT - 1)) * (slice.length - 1)) : 0;
-    const p = slice[idx];
-    const text = document.createElementNS(ns, 'text');
-    text.setAttribute('x', xAt(idx));
-    text.setAttribute('y', H - 4);
-    text.setAttribute('font-size', '9');
-    text.setAttribute('fill', '#8a8a92');
-    text.setAttribute('text-anchor', idx === 0 ? 'start' : idx === slice.length - 1 ? 'end' : 'middle');
-    text.textContent = p.date ? p.date.slice(5) : '';
-    svg.appendChild(text);
+  // X-axis: date labels at evenly-spaced points across whatever real
+  // data is currently visible — these live inside the SVG so they
+  // pan/zoom with the data. Only real (non-projected) points have a
+  // date to show.
+  if (slice.length) {
+    const X_LABEL_COUNT = Math.min(5, slice.length);
+    for (let i = 0; i < X_LABEL_COUNT; i++) {
+      const idx = X_LABEL_COUNT > 1 ? Math.round((i / (X_LABEL_COUNT - 1)) * (slice.length - 1)) : 0;
+      const p = slice[idx];
+      const text = document.createElementNS(ns, 'text');
+      text.setAttribute('x', xAt(idx));
+      text.setAttribute('y', H - 4);
+      text.setAttribute('font-size', '9');
+      text.setAttribute('fill', '#8a8a92');
+      text.setAttribute('text-anchor', idx === 0 ? 'start' : idx === slice.length - 1 ? 'end' : 'middle');
+      text.textContent = p.date ? p.date.slice(5) : '';
+      svg.appendChild(text);
+    }
+  }
+  if (allowProjection && endIdxRaw > curve.length - 1) {
+    // Label the projected region's right edge with its real calendar date.
+    const projDateIso = eqGoalRef.lastTradeDateStr
+      ? addWeekdaysIso(eqGoalRef.lastTradeDateStr, (endIdxRaw - (curve.length - 1)) / eqGoalRef.avgTPDFull)
+      : null;
+    if (projDateIso) {
+      const text = document.createElementNS(ns, 'text');
+      text.setAttribute('x', xAtIdx(endIdxRaw));
+      text.setAttribute('y', H - 4);
+      text.setAttribute('font-size', '9');
+      text.setAttribute('fill', '#8a8a92');
+      text.setAttribute('text-anchor', 'end');
+      text.textContent = projDateIso.slice(5) + ' (proj.)';
+      svg.appendChild(text);
+    }
   }
 
+  const values = slice.map((p) => p.cumulative);
   const first = slice[0], last = slice[slice.length - 1];
-  const zoomedTag = eqVisibleCount < curve.length ? ' · pinch out or double-tap to reset' : '';
-  $('#equity-caption').textContent = `${first.date}${first.time ? ' ' + first.time : ''} → ${last.date}${last.time ? ' ' + last.time : ''} · ${money(values[values.length - 1], true)}${zoomedTag}`;
+  const zoomedTag = eqVisibleCount < eqTotalLen ? ' · pinch out or double-tap to reset' : '';
+  $('#equity-caption').textContent = first && last
+    ? `${first.date}${first.time ? ' ' + first.time : ''} → ${last.date}${last.time ? ' ' + last.time : ''} · ${money(values[values.length - 1], true)}${zoomedTag}`
+    : `Projected — pinch in or double-tap to return to your trade history${zoomedTag}`;
 
   if (!eqGestureBound) { attachEquityGestures(); eqGestureBound = true; }
   renderEqBrush();
@@ -1353,6 +1480,7 @@ function renderEqBrush() {
   const svg = $('#eq-brush-svg');
   svg.innerHTML = '';
   const curve = eqCurveRef;
+  const totalLen = eqTotalLen || curve.length;
   if (!curve.length) return;
   const W = 400, H = 40;
   const ns = 'http://www.w3.org/2000/svg';
@@ -1361,7 +1489,10 @@ function renderEqBrush() {
   const min = Math.min(0, ...values), max = Math.max(0, ...values);
   const span = (max - min) || 1;
   const yAt = (v) => 3 + (1 - (v - min) / span) * (H - 6);
-  const xAt = (i) => curve.length > 1 ? (i / (curve.length - 1)) * W : W / 2;
+  // Sparkline only covers real data, scaled against the (possibly larger)
+  // total domain — leaves a blank strip on the right when the goal
+  // projection extends the domain into the future.
+  const xAt = (i) => (i / totalLen) * W;
 
   let path = `M ${xAt(0)} ${yAt(values[0])}`;
   for (let i = 1; i < values.length; i++) path += ` L ${xAt(i)} ${yAt(values[i])}`;
@@ -1370,8 +1501,19 @@ function renderEqBrush() {
   line.setAttribute('stroke', '#6b6b74'); line.setAttribute('stroke-width', '1');
   svg.appendChild(line);
 
-  const leftX = (eqPanStart / curve.length) * W;
-  const rightX = ((eqPanStart + eqVisibleCount) / curve.length) * W;
+  if (totalLen > curve.length) {
+    // Dashed marker showing where the future projection begins.
+    const futureLine = document.createElementNS(ns, 'line');
+    const fx = xAt(curve.length - 1);
+    futureLine.setAttribute('x1', fx); futureLine.setAttribute('x2', W);
+    futureLine.setAttribute('y1', yAt(values[values.length - 1])); futureLine.setAttribute('y2', yAt(values[values.length - 1]));
+    futureLine.setAttribute('stroke', '#ffd23c'); futureLine.setAttribute('stroke-width', '1');
+    futureLine.setAttribute('stroke-dasharray', '3 3'); futureLine.setAttribute('opacity', '0.6');
+    svg.appendChild(futureLine);
+  }
+
+  const leftX = (eqPanStart / totalLen) * W;
+  const rightX = ((eqPanStart + eqVisibleCount) / totalLen) * W;
 
   const dimLeft = document.createElementNS(ns, 'rect');
   dimLeft.setAttribute('x', 0); dimLeft.setAttribute('y', 0); dimLeft.setAttribute('width', leftX); dimLeft.setAttribute('height', H);
@@ -1408,11 +1550,11 @@ function attachEqBrushDrag() {
   function idxAt(clientX) {
     const rect = svg.getBoundingClientRect();
     const pct = eqClamp((clientX - rect.left) / rect.width, 0, 1);
-    return pct * eqCurveRef.length;
+    return pct * (eqTotalLen || eqCurveRef.length);
   }
 
   function onStart(clientX) {
-    const n = eqCurveRef.length;
+    const n = eqTotalLen || eqCurveRef.length;
     if (!n) return;
     const rect = svg.getBoundingClientRect();
     const x = clientX - rect.left;
@@ -1430,7 +1572,7 @@ function attachEqBrushDrag() {
   }
   function onMove(clientX) {
     if (!drag) return;
-    const n = eqCurveRef.length;
+    const n = eqTotalLen || eqCurveRef.length;
     const idx = idxAt(clientX);
     if (drag === 'left') {
       const newStart = eqClamp(idx, 0, eqPanStart + eqVisibleCount - Math.min(3, n));
@@ -1550,16 +1692,17 @@ function attachEquityGestures() {
       if (Math.abs(dx) > 3) panState.moved = true;
       const rect = wrap.getBoundingClientRect();
       const idxDelta = (dx / rect.width) * eqVisibleCount;
-      eqPanStart = eqClamp(panState.startPanStart - idxDelta, 0, Math.max(0, eqCurveRef.length - eqVisibleCount));
+      eqPanStart = eqClamp(panState.startPanStart - idxDelta, 0, Math.max(0, (eqTotalLen || eqCurveRef.length) - eqVisibleCount));
       drawEquityCumulative(eqCurveRef, true);
     } else if (evt.touches.length === 2 && pinchState) {
       const [t0, t1] = evt.touches;
       const dist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
       const scale = dist / pinchState.startDist;
-      const newVisible = eqClamp(pinchState.startVisible / scale, Math.min(3, eqCurveRef.length), eqCurveRef.length);
+      const totalLenNow = eqTotalLen || eqCurveRef.length;
+      const newVisible = eqClamp(pinchState.startVisible / scale, Math.min(3, eqCurveRef.length), totalLenNow);
       const pctBefore = eqVisibleCount ? (pinchState.centerIdx - eqPanStart) / eqVisibleCount : 0.5;
       eqVisibleCount = newVisible;
-      eqPanStart = eqClamp(pinchState.centerIdx - pctBefore * eqVisibleCount, 0, Math.max(0, eqCurveRef.length - eqVisibleCount));
+      eqPanStart = eqClamp(pinchState.centerIdx - pctBefore * eqVisibleCount, 0, Math.max(0, totalLenNow - eqVisibleCount));
       drawEquityCumulative(eqCurveRef, true);
     }
   }, { passive: true });
@@ -1585,7 +1728,7 @@ function attachEquityGestures() {
     if (!panState.moved) return;
     const rect = wrap.getBoundingClientRect();
     const idxDelta = (dx / rect.width) * eqVisibleCount;
-    eqPanStart = eqClamp(panState.startPanStart - idxDelta, 0, Math.max(0, eqCurveRef.length - eqVisibleCount));
+    eqPanStart = eqClamp(panState.startPanStart - idxDelta, 0, Math.max(0, (eqTotalLen || eqCurveRef.length) - eqVisibleCount));
     drawEquityCumulative(eqCurveRef, true);
   });
   window.addEventListener('mouseup', (evt) => {

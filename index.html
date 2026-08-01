@@ -176,6 +176,16 @@
   }
   .eq-toggle-btn.active { color: var(--green-bright); border-color: var(--green); background: #16281f; }
   .eq-toggle-btn.goal-btn.active { color: var(--gold); border-color: var(--gold); background: #2a2308; }
+  .eq-dot-row { display: flex; gap: 16px; margin-bottom: 12px; padding: 2px 2px; }
+  .eq-dot {
+    display: flex; align-items: center; gap: 6px; background: none; border: none;
+    color: var(--text-dim); font-size: 11.5px; font-weight: 600; cursor: pointer; font-family: inherit; padding: 0;
+  }
+  .eq-dot i { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--text-dim); box-sizing: border-box; }
+  .eq-dot.active { color: var(--text); }
+  .eq-dot[data-show="equity"].active i { background: var(--green-bright); border-color: var(--green-bright); }
+  .eq-dot[data-show="drawdown"].active i { background: var(--purple-bright); border-color: var(--purple-bright); }
+  .eq-dot[data-show="goal"].active i { background: var(--gold); border-color: var(--gold); }
   .eq-scope-btn {
     flex: 1; background: var(--panel-alt); border: 1px solid var(--border); color: var(--text-dim);
     padding: 8px; border-radius: 4px; font-size: 11.5px; font-weight: 700; cursor: pointer; font-family: inherit;
@@ -431,9 +441,12 @@
           </div>
           <div class="eq-toggle">
             <button class="eq-toggle-btn active" data-mode="cumulative">Cumulative</button>
-            <button class="eq-toggle-btn" data-mode="drawdown">Drawdown</button>
             <button class="eq-toggle-btn" data-mode="daily">Daily</button>
-            <button class="eq-toggle-btn goal-btn active" id="goal-toggle-btn">Goal</button>
+          </div>
+          <div class="eq-dot-row">
+            <button class="eq-dot active" data-show="equity"><i></i>Equity</button>
+            <button class="eq-dot" data-show="drawdown"><i></i>Drawdown</button>
+            <button class="eq-dot active" data-show="goal"><i></i>Goal</button>
           </div>
           <div class="eq-stat-grid">
             <div class="eq-stat"><div class="stat-label">Current</div><div class="eq-stat-v" id="eq-current">—</div></div>
@@ -1062,7 +1075,9 @@ function renderChartByDay(daily) {
 // ── Render: Equity tab (cumulative area / daily bars + inspect) ────
 let eqMode = 'cumulative';
 let eqScope = 'free'; // 'free' = full account history, 'range' = respects the top range picker
-let eqGoalOn = true;
+// Independent overlay toggles, matching desktop's exact defaults
+// (renderer.js: `let eqShowEquity = true, eqShowDrawdown = false, eqShowGoal = true;`).
+let eqShowEquity = true, eqShowDrawdown = false, eqShowGoal = true;
 let eqGoalRef = null; // { goalPoints, goalFinal } for the currently rendered view
 
 // Faithful port of the desktop equity chart's goal-pace formula (see
@@ -1132,8 +1147,7 @@ function renderEquity(scoped) {
   gapEl.textContent = money(gap, true);
   gapEl.className = 'eq-stat-v ' + posNeg(gap);
 
-  if (eqMode === 'cumulative') drawEquityCumulative(curve, false, false);
-  else if (eqMode === 'drawdown') drawEquityCumulative(buildDrawdownCurve(curve), false, true);
+  if (eqMode === 'cumulative') drawEquityCumulative(curve, false);
   else drawEquityDaily(daily);
 }
 
@@ -1160,10 +1174,7 @@ let eqGestureBound = false;
 
 function eqClamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
-let eqIsDrawdown = false;
-
-function drawEquityCumulative(curve, keepView, isDrawdown) {
-  if (isDrawdown !== undefined) eqIsDrawdown = isDrawdown;
+function drawEquityCumulative(curve, keepView) {
   eqCurveRef = curve;
   if (!keepView || !eqVisibleCount) {
     eqVisibleCount = curve.length;
@@ -1174,7 +1185,7 @@ function drawEquityCumulative(curve, keepView, isDrawdown) {
 
   const svg = $('#equity-svg');
   svg.innerHTML = '';
-  const W = 400, H = 220, padTop = 12, padBottom = 12;
+  const W = 400, H = 220;
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   svg.removeAttribute('width');
 
@@ -1182,95 +1193,132 @@ function drawEquityCumulative(curve, keepView, isDrawdown) {
   const endIdx = Math.min(curve.length - 1, Math.ceil(eqPanStart + eqVisibleCount));
   const slice = curve.slice(startIdx, endIdx + 1);
   if (!slice.length) return;
-
-  const values = slice.map((p) => p.cumulative);
-  const showGoal = !isDrawdown && eqGoalOn && eqGoalRef && eqGoalRef.goalPoints.length === curve.length;
-  const goalSlice = showGoal ? eqGoalRef.goalPoints.slice(startIdx, endIdx + 1) : null;
-  const domainVals = showGoal ? values.concat(goalSlice) : values;
-  const min = Math.min(0, ...domainVals), max = Math.max(0, ...domainVals);
-  const span = (max - min) || 1;
-  const yAt = (v) => padTop + (1 - (v - min) / span) * (H - padTop - padBottom);
   const xAt = (i) => ((startIdx + i - eqPanStart) / eqVisibleCount) * W;
-
   const ns = 'http://www.w3.org/2000/svg';
-  let linePath = `M ${xAt(0)} ${yAt(values[0])}`;
-  let areaPath = `M ${xAt(0)} ${yAt(0)} L ${xAt(0)} ${yAt(values[0])}`;
-  for (let i = 1; i < slice.length; i++) {
-    linePath += ` L ${xAt(i)} ${yAt(values[i])}`;
-    areaPath += ` L ${xAt(i)} ${yAt(values[i])}`;
-  }
-  areaPath += ` L ${xAt(slice.length - 1)} ${yAt(0)} Z`;
 
-  const areaColor = eqIsDrawdown ? 'rgba(168,85,247,0.16)' : 'rgba(52,225,135,0.14)';
-  const lineColor = eqIsDrawdown ? '#a855f7' : '#34e187';
+  const topActive = eqShowEquity || eqShowGoal;
+  const botActive = eqShowDrawdown;
+  // Split the canvas: both regions get ~65%/35% when combined, either
+  // takes the full height alone — same top/bottom split desktop uses.
+  const gap = topActive && botActive ? 8 : 0;
+  const topH = topActive ? (botActive ? H * 0.62 : H) - 6 : 0;
+  const botH = botActive ? (topActive ? H * 0.38 - gap : H) - 6 : 0;
+  const topY0 = 6, topY1 = topY0 + topH;
+  const botY0 = topY1 + gap, botY1 = botY0 + botH;
 
-  const area = document.createElementNS(ns, 'path');
-  area.setAttribute('d', areaPath); area.setAttribute('fill', areaColor);
-  svg.appendChild(area);
-
-  const line = document.createElementNS(ns, 'path');
-  line.setAttribute('d', linePath); line.setAttribute('fill', 'none');
-  line.setAttribute('stroke', lineColor); line.setAttribute('stroke-width', '1.4');
-  svg.appendChild(line);
-
-  if (showGoal) {
-    let goalPath = `M ${xAt(0)} ${yAt(goalSlice[0])}`;
-    for (let i = 1; i < goalSlice.length; i++) goalPath += ` L ${xAt(i)} ${yAt(goalSlice[i])}`;
-    const goalLine = document.createElementNS(ns, 'path');
-    goalLine.setAttribute('d', goalPath); goalLine.setAttribute('fill', 'none');
-    goalLine.setAttribute('stroke', '#ffd23c'); goalLine.setAttribute('stroke-width', '1.5');
-    goalLine.setAttribute('stroke-dasharray', '5 4'); goalLine.setAttribute('opacity', '0.85');
-    svg.appendChild(goalLine);
-
-    // End-of-line pill, same look as desktop's gold milestone label.
-    const lx = xAt(goalSlice.length - 1), ly = yAt(goalSlice[goalSlice.length - 1]);
-    const lbl = money(goalSlice[goalSlice.length - 1], true);
-    const tw = lbl.length * 5.8 + 14;
-    const bx = Math.max(2, Math.min(lx - tw - 6, W - tw - 2));
-    const by = Math.max(2, Math.min(ly - 10, H - 22));
-    const dot = document.createElementNS(ns, 'circle');
-    dot.setAttribute('cx', lx); dot.setAttribute('cy', ly); dot.setAttribute('r', '3');
-    dot.setAttribute('fill', '#ffd23c');
-    svg.appendChild(dot);
-    const pillRect = document.createElementNS(ns, 'rect');
-    pillRect.setAttribute('x', bx); pillRect.setAttribute('y', by);
-    pillRect.setAttribute('width', tw); pillRect.setAttribute('height', 19);
-    pillRect.setAttribute('rx', 9.5); pillRect.setAttribute('fill', '#ffd23c'); pillRect.setAttribute('opacity', '0.95');
-    svg.appendChild(pillRect);
-    const pillText = document.createElementNS(ns, 'text');
-    pillText.setAttribute('x', bx + tw / 2); pillText.setAttribute('y', by + 13);
-    pillText.setAttribute('text-anchor', 'middle'); pillText.setAttribute('font-size', '10');
-    pillText.setAttribute('font-weight', '600'); pillText.setAttribute('fill', '#1a1a1e');
-    pillText.textContent = lbl;
-    svg.appendChild(pillText);
-  }
-
-  const zero = document.createElementNS(ns, 'line');
-  zero.setAttribute('x1', 0); zero.setAttribute('x2', W); zero.setAttribute('y1', yAt(0)); zero.setAttribute('y2', yAt(0));
-  zero.setAttribute('stroke', '#2a2a2e'); zero.setAttribute('stroke-width', '1');
-  svg.appendChild(zero);
-
-  // Y-axis: fixed price gridlines + labels, non-scrolling overlay.
   const yaxis = $('#eq-yaxis');
   yaxis.innerHTML = '';
-  const LEVELS = 4;
-  for (let i = 0; i <= LEVELS; i++) {
-    const v = max - (i / LEVELS) * (max - min);
-    const yPct = (yAt(v) / H) * 100;
-    const gl = document.createElement('div');
-    gl.className = 'tcm-gridline';
-    gl.style.top = yPct + '%';
-    yaxis.appendChild(gl);
+
+  // ── Top region: Equity (+ Goal) ──────────────────────────────────
+  if (topActive) {
+    const values = slice.map((p) => p.cumulative);
+    const showGoal = eqShowGoal && eqGoalRef && eqGoalRef.goalPoints.length === curve.length;
+    const goalSlice = showGoal ? eqGoalRef.goalPoints.slice(startIdx, endIdx + 1) : null;
+    const domainVals = eqShowEquity ? (showGoal ? values.concat(goalSlice) : values) : goalSlice;
+    const min = Math.min(0, ...domainVals), max = Math.max(0, ...domainVals);
+    const span = (max - min) || 1;
+    const yAt = (v) => topY0 + (1 - (v - min) / span) * (topY1 - topY0);
+
+    if (eqShowEquity) {
+      let linePath = `M ${xAt(0)} ${yAt(values[0])}`;
+      let areaPath = `M ${xAt(0)} ${yAt(0)} L ${xAt(0)} ${yAt(values[0])}`;
+      for (let i = 1; i < slice.length; i++) {
+        linePath += ` L ${xAt(i)} ${yAt(values[i])}`;
+        areaPath += ` L ${xAt(i)} ${yAt(values[i])}`;
+      }
+      areaPath += ` L ${xAt(slice.length - 1)} ${yAt(0)} Z`;
+      const area = document.createElementNS(ns, 'path');
+      area.setAttribute('d', areaPath); area.setAttribute('fill', 'rgba(52,225,135,0.14)');
+      svg.appendChild(area);
+      const line = document.createElementNS(ns, 'path');
+      line.setAttribute('d', linePath); line.setAttribute('fill', 'none');
+      line.setAttribute('stroke', '#34e187'); line.setAttribute('stroke-width', '1.4');
+      svg.appendChild(line);
+    }
+
+    if (showGoal) {
+      let goalPath = `M ${xAt(0)} ${yAt(goalSlice[0])}`;
+      for (let i = 1; i < goalSlice.length; i++) goalPath += ` L ${xAt(i)} ${yAt(goalSlice[i])}`;
+      const goalLine = document.createElementNS(ns, 'path');
+      goalLine.setAttribute('d', goalPath); goalLine.setAttribute('fill', 'none');
+      goalLine.setAttribute('stroke', '#ffd23c'); goalLine.setAttribute('stroke-width', '1.5');
+      goalLine.setAttribute('stroke-dasharray', '5 4'); goalLine.setAttribute('opacity', '0.85');
+      svg.appendChild(goalLine);
+
+      const lx = xAt(goalSlice.length - 1), ly = yAt(goalSlice[goalSlice.length - 1]);
+      const lbl = money(goalSlice[goalSlice.length - 1], true);
+      const tw = lbl.length * 5.8 + 14;
+      const bx = Math.max(2, Math.min(lx - tw - 6, W - tw - 2));
+      const by = Math.max(topY0 + 2, Math.min(ly - 10, topY1 - 20));
+      const dot = document.createElementNS(ns, 'circle');
+      dot.setAttribute('cx', lx); dot.setAttribute('cy', ly); dot.setAttribute('r', '3');
+      dot.setAttribute('fill', '#ffd23c');
+      svg.appendChild(dot);
+      const pillRect = document.createElementNS(ns, 'rect');
+      pillRect.setAttribute('x', bx); pillRect.setAttribute('y', by);
+      pillRect.setAttribute('width', tw); pillRect.setAttribute('height', 19);
+      pillRect.setAttribute('rx', 9.5); pillRect.setAttribute('fill', '#ffd23c'); pillRect.setAttribute('opacity', '0.95');
+      svg.appendChild(pillRect);
+      const pillText = document.createElementNS(ns, 'text');
+      pillText.setAttribute('x', bx + tw / 2); pillText.setAttribute('y', by + 13);
+      pillText.setAttribute('text-anchor', 'middle'); pillText.setAttribute('font-size', '10');
+      pillText.setAttribute('font-weight', '600'); pillText.setAttribute('fill', '#1a1a1e');
+      pillText.textContent = lbl;
+      svg.appendChild(pillText);
+    }
+
+    const zero = document.createElementNS(ns, 'line');
+    zero.setAttribute('x1', 0); zero.setAttribute('x2', W); zero.setAttribute('y1', yAt(0)); zero.setAttribute('y2', yAt(0));
+    zero.setAttribute('stroke', '#2a2a2e'); zero.setAttribute('stroke-width', '1');
+    svg.appendChild(zero);
+
+    const LEVELS = botActive ? 3 : 4;
+    for (let i = 0; i <= LEVELS; i++) {
+      const v = max - (i / LEVELS) * (max - min);
+      const yPct = (yAt(v) / H) * 100;
+      const gl = document.createElement('div');
+      gl.className = 'tcm-gridline'; gl.style.top = yPct + '%';
+      yaxis.appendChild(gl);
+      const label = document.createElement('div');
+      label.className = 'tcm-gridline-label'; label.style.top = yPct + '%';
+      label.textContent = money(v, true);
+      yaxis.appendChild(label);
+    }
+  }
+
+  // ── Bottom region: Drawdown ──────────────────────────────────────
+  if (botActive) {
+    const ddSlice = buildDrawdownCurve(curve).slice(startIdx, endIdx + 1);
+    const ddValues = ddSlice.map((p) => p.cumulative);
+    const min = Math.min(0, ...ddValues), max = 0;
+    const span = (max - min) || 1;
+    const yAt = (v) => botY0 + (1 - (v - min) / span) * (botY1 - botY0);
+
+    let linePath = `M ${xAt(0)} ${yAt(ddValues[0])}`;
+    let areaPath = `M ${xAt(0)} ${yAt(0)} L ${xAt(0)} ${yAt(ddValues[0])}`;
+    for (let i = 1; i < ddSlice.length; i++) {
+      linePath += ` L ${xAt(i)} ${yAt(ddValues[i])}`;
+      areaPath += ` L ${xAt(i)} ${yAt(ddValues[i])}`;
+    }
+    areaPath += ` L ${xAt(ddSlice.length - 1)} ${yAt(0)} Z`;
+    const area = document.createElementNS(ns, 'path');
+    area.setAttribute('d', areaPath); area.setAttribute('fill', 'rgba(168,85,247,0.16)');
+    svg.appendChild(area);
+    const line = document.createElementNS(ns, 'path');
+    line.setAttribute('d', linePath); line.setAttribute('fill', 'none');
+    line.setAttribute('stroke', '#a855f7'); line.setAttribute('stroke-width', '1.4');
+    svg.appendChild(line);
+
     const label = document.createElement('div');
     label.className = 'tcm-gridline-label';
-    label.style.top = yPct + '%';
-    label.textContent = money(v, true);
+    label.style.top = (botY0 / H) * 100 + '%';
+    label.textContent = money(min, true);
     yaxis.appendChild(label);
   }
 
   // X-axis: date labels at evenly-spaced points across whatever's
   // currently visible — these live inside the SVG so they pan/zoom with
-  // the data, same as the Y-axis labels above but on the time dimension.
+  // the data, same as the Y-axis labels but on the time dimension.
   const X_LABEL_COUNT = Math.min(5, slice.length);
   for (let i = 0; i < X_LABEL_COUNT; i++) {
     const idx = X_LABEL_COUNT > 1 ? Math.round((i / (X_LABEL_COUNT - 1)) * (slice.length - 1)) : 0;
@@ -1281,7 +1329,7 @@ function drawEquityCumulative(curve, keepView, isDrawdown) {
     text.setAttribute('font-size', '9');
     text.setAttribute('fill', '#8a8a92');
     text.setAttribute('text-anchor', idx === 0 ? 'start' : idx === slice.length - 1 ? 'end' : 'middle');
-    text.textContent = p.date ? p.date.slice(5) : ''; // MM-DD, year rarely needed at this zoom
+    text.textContent = p.date ? p.date.slice(5) : '';
     svg.appendChild(text);
   }
 
@@ -1337,7 +1385,7 @@ function renderEqBrush() {
   const win = document.createElementNS(ns, 'rect');
   win.setAttribute('x', leftX); win.setAttribute('y', 0.5);
   win.setAttribute('width', Math.max(1, rightX - leftX)); win.setAttribute('height', H - 1);
-  win.setAttribute('fill', 'none'); win.setAttribute('stroke', eqIsDrawdown ? '#a855f7' : '#34e187');
+  win.setAttribute('fill', 'none'); win.setAttribute('stroke', '#34e187');
   win.setAttribute('stroke-width', '1.5');
   svg.appendChild(win);
 
@@ -1345,7 +1393,7 @@ function renderEqBrush() {
     const handle = document.createElementNS(ns, 'rect');
     handle.setAttribute('x', edgeX - 2); handle.setAttribute('y', 0);
     handle.setAttribute('width', 4); handle.setAttribute('height', H);
-    handle.setAttribute('fill', eqIsDrawdown ? '#a855f7' : '#34e187');
+    handle.setAttribute('fill', '#34e187');
     svg.appendChild(handle);
   });
 
@@ -1473,7 +1521,7 @@ function attachEquityGestures() {
   }
 
   wrap.addEventListener('touchstart', (evt) => {
-    if (eqMode !== 'cumulative' && eqMode !== 'drawdown') return;
+    if (eqMode !== 'cumulative') return;
     if (evt.touches.length === 1) {
       const now = Date.now();
       if (now - lastTapAt < 320) {
@@ -1531,7 +1579,7 @@ function attachEquityGestures() {
     panState = { startX: evt.clientX, startPanStart: eqPanStart, moved: false };
   });
   window.addEventListener('mousemove', (evt) => {
-    if (!panState || (eqMode !== 'cumulative' && eqMode !== 'drawdown')) return;
+    if (!panState || eqMode !== 'cumulative') return;
     const dx = evt.clientX - panState.startX;
     if (Math.abs(dx) > 3) panState.moved = true;
     if (!panState.moved) return;
@@ -2164,10 +2212,15 @@ function init() {
     });
   });
 
-  $('#goal-toggle-btn').addEventListener('click', () => {
-    eqGoalOn = !eqGoalOn;
-    $('#goal-toggle-btn').classList.toggle('active', eqGoalOn);
-    if (lastScoped) renderEquity(lastScoped);
+  document.querySelectorAll('.eq-dot').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const show = btn.dataset.show;
+      if (show === 'equity') eqShowEquity = !eqShowEquity;
+      else if (show === 'drawdown') eqShowDrawdown = !eqShowDrawdown;
+      else if (show === 'goal') eqShowGoal = !eqShowGoal;
+      btn.classList.toggle('active', show === 'equity' ? eqShowEquity : show === 'drawdown' ? eqShowDrawdown : eqShowGoal);
+      if (lastScoped) renderEquity(lastScoped);
+    });
   });
 
   document.querySelectorAll('.eq-scope-btn').forEach((btn) => {
